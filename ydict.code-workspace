@@ -13,9 +13,9 @@
     "cmake.buildDirectory": "${workspaceFolder}/build/${buildPresetName}",
     "cmake.generator": "Visual Studio 17 2022",
 
-    // --- C/C++ IntelliSense ---
-    // CMakePresets.json ustawia CMAKE_EXPORT_COMPILE_COMMANDS=ON,
-    // więc cpptools może użyć compile_commands.json.
+  // --- C/C++ IntelliSense ---
+  // CMakePresets.json sets CMAKE_EXPORT_COMPILE_COMMANDS=ON,
+  // so cpptools can use compile_commands.json.
 	"C_Cpp.default.compileCommands": "${workspaceFolder}/build/debug/compile_commands.json",
     "C_Cpp.default.cppStandard": "c++20",
     "C_Cpp.default.intelliSenseMode": "windows-msvc-x64",
