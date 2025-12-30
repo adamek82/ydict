@@ -30,6 +30,11 @@ int main()
         } else {
             std::cout << "RTF read failed.\n";
         }
+
+        // plain text smoke test (RTF -> plain, Win-1250/phonetic -> UTF-8)
+        std::string text = dict.readPlainText(probe);
+        std::cout << "\nplain(" << probe << ") => " << text.size() << " bytes\n";
+        std::cout << text.substr(0, std::min<size_t>(400, text.size())) << "\n";
     }
 
     return ok ? 0 : 1;

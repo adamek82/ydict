@@ -3,7 +3,18 @@
 #include <fstream>
 #include <stdexcept>
 
+#ifdef _WIN32
+#include <Windows.h>
+#endif
+
 namespace ydict {
+
+static const char* kPhoneticToUtf8[32] = {
+    "?", "?", "ɔ", "ʒ", "?", "ʃ", "ɛ", "ʌ",
+    "ə", "θ", "ɪ", "ɑ", "?", "ː", "ˈ", "?",
+    "ŋ", "?", "?", "?", "?", "?", "?", "ð",
+    "æ", "?", "?", "?", "?", "?", "?", "?"
+};
 
 static std::uint16_t read_u16_le(std::istream& in)
 {
@@ -149,6 +160,175 @@ std::string Dictionary::readRtf(int defIndex) const
         return {};
 
     return rtf;
+}
+
+static void append_cp1250_byte_as_utf8(std::string& out, unsigned char b)
+{
+    if (b == 0x7F) { // upstream mapped this to "~"
+        out.push_back('~');
+        return;
+    }
+    if (b < 0x80) {
+        out.push_back(static_cast<char>(b));
+        return;
+    }
+
+#ifdef _WIN32
+    wchar_t wbuf[2] = {};
+    const char in = static_cast<char>(b);
+
+    const int wlen = MultiByteToWideChar(1250 /*CP1250*/, MB_ERR_INVALID_CHARS, &in, 1, wbuf, 2);
+    if (wlen <= 0) {
+        out.push_back('?');
+        return;
+    }
+
+    char ubuf[8] = {};
+    const int ulen = WideCharToMultiByte(CP_UTF8, 0, wbuf, wlen, ubuf, int(sizeof(ubuf)), nullptr, nullptr);
+    if (ulen <= 0) {
+        out.push_back('?');
+        return;
+    }
+    out.append(ubuf, ubuf + ulen);
+#else
+    // fallback (jeśli kiedyś będziesz to kompilował poza Windows): bez tabeli lepiej niż crash
+    out.push_back('?');
+#endif
+}
+
+static void append_byte_as_utf8(std::string& out, unsigned char b, bool phoneticMode)
+{
+    if (phoneticMode && b >= 128 && b < 160) {
+        out += kPhoneticToUtf8[b - 128];
+        return;
+    }
+    append_cp1250_byte_as_utf8(out, b);
+}
+
+static int hexval(char c)
+{
+    if (c >= '0' && c <= '9') return c - '0';
+    if (c >= 'a' && c <= 'f') return 10 + (c - 'a');
+    if (c >= 'A' && c <= 'F') return 10 + (c - 'A');
+    return -1;
+}
+
+static std::string rtf_to_plain_utf8(const std::string& rtf)
+{
+    std::string out;
+    out.reserve(rtf.size());
+
+    bool phonetic = false;
+
+    for (size_t i = 0; i < rtf.size(); ) {
+        const unsigned char ch = static_cast<unsigned char>(rtf[i]);
+
+        if (ch == '{' || ch == '}') {
+            ++i;
+            continue;
+        }
+
+        if (ch != '\\') {
+            append_byte_as_utf8(out, ch, phonetic);
+            ++i;
+            continue;
+        }
+
+        // control sequence
+        ++i;
+        if (i >= rtf.size())
+            break;
+
+        // hex escape: \'hh
+        if (rtf[i] == '\'' && i + 2 < rtf.size()) {
+            const int h1 = hexval(rtf[i + 1]);
+            const int h2 = hexval(rtf[i + 2]);
+            if (h1 >= 0 && h2 >= 0) {
+                const unsigned char b = static_cast<unsigned char>((h1 << 4) | h2);
+                append_byte_as_utf8(out, b, phonetic);
+                i += 3;
+                continue;
+            }
+        }
+
+        // parse control word: letters
+        std::string tok;
+        while (i < rtf.size()) {
+            const char c = rtf[i];
+            if (!((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')))
+                break;
+            tok.push_back(c);
+            ++i;
+        }
+
+        // optional numeric parameter (e.g. sa100, li300, u8211)
+        bool hasParam = false;
+        int param = 0;
+        int sign = 1;
+
+        if (i < rtf.size() && (rtf[i] == '-' || (rtf[i] >= '0' && rtf[i] <= '9'))) {
+            hasParam = true;
+            if (rtf[i] == '-') { sign = -1; ++i; }
+            while (i < rtf.size() && (rtf[i] >= '0' && rtf[i] <= '9')) {
+                param = param * 10 + (rtf[i] - '0');
+                ++i;
+            }
+            param *= sign;
+        }
+
+        // skip one optional space delimiter
+        if (i < rtf.size() && rtf[i] == ' ')
+            ++i;
+
+        // minimal semantics
+        if (tok == "par" || tok == "line") {
+            out.push_back('\n');
+            continue;
+        }
+        if (tok == "tab") {
+            out.push_back('\t');
+            continue;
+        }
+
+        // font switching: in upstream "f1" meant phonetic, any other "f*" resets
+        if (tok == "f1") {
+            phonetic = true;
+            continue;
+        }
+        if (!tok.empty() && tok[0] == 'f' && tok != "f1") {
+            phonetic = false;
+            continue;
+        }
+
+        // minimal RTF \uN support (optional; harmless)
+        if (tok == "u" && hasParam) {
+#ifdef _WIN32
+            wchar_t wc = static_cast<wchar_t>(param);
+            char ubuf[8] = {};
+            const int ulen = WideCharToMultiByte(CP_UTF8, 0, &wc, 1, ubuf, int(sizeof(ubuf)), nullptr, nullptr);
+            if (ulen > 0) out.append(ubuf, ubuf + ulen);
+            else out.push_back('?');
+#else
+            out.push_back('?');
+#endif
+            // RTF expects a fallback char right after \uN — skip one if present
+            if (i < rtf.size())
+                ++i;
+            continue;
+        }
+
+        // everything else ignored
+    }
+
+    return out;
+}
+
+std::string Dictionary::readPlainText(int defIndex) const
+{
+    const std::string rtf = readRtf(defIndex);
+    if (rtf.empty())
+        return {};
+    return rtf_to_plain_utf8(rtf);
 }
 
 } // namespace ydict

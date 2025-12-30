@@ -30,6 +30,9 @@ public:
     // read raw RTF definition from .dat for given entry index
     std::string readRtf(int defIndex) const;
 
+    // read "plain text" converted to UTF-8 (minimal RTF parsing)
+    std::string readPlainText(int defIndex) const;
+
 private:
     bool initialized_ = false;
     std::string dat_path_;

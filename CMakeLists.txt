@@ -17,7 +17,11 @@ target_include_directories(ydict PUBLIC
 
 # Reasonable warnings (MSVC + others)
 target_compile_options(ydict PRIVATE
-    $<$<CXX_COMPILER_ID:MSVC>:/W4 /permissive- /Zc:__cplusplus>
+    $<$<CXX_COMPILER_ID:MSVC>:
+        /W4 /permissive- /Zc:__cplusplus
+        /utf-8
+        /Zc:char8_t-
+    >
     $<$<NOT:$<CXX_COMPILER_ID:MSVC>>:-Wall -Wextra -Wpedantic>
 )
 
