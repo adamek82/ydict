@@ -1,6 +1,7 @@
 #include "ydict/ydict.h"
 
 #include <fstream>
+#include <stdexcept>
 
 namespace ydict {
 
@@ -37,7 +38,19 @@ bool Dictionary::init(const Config& cfg)
     initialized_ = false;
     words_.clear();
 
+    dat_path_.clear();
+
     if (cfg.idx_path.empty())
+        return false;
+
+    if (cfg.dat_path.empty())
+        return false;
+
+    dat_path_ = cfg.dat_path;
+
+    // quick sanity check: can we open .dat at all?
+    std::ifstream dat(dat_path_, std::ios::binary);
+    if (!dat)
         return false;
 
     std::ifstream idx(cfg.idx_path, std::ios::binary);
@@ -86,6 +99,56 @@ std::string Dictionary::version() const
     if (!initialized_)
         return "ydict - not initialized";
     return "ydict - idx loaded (" + std::to_string(words_.size()) + " words)";
+}
+
+std::string Dictionary::readRtf(int defIndex) const
+{
+    if (!initialized_ || dat_path_.empty())
+        return {};
+
+    if (defIndex < 0 || defIndex >= static_cast<int>(words_.size()))
+        return {};
+
+    std::ifstream dat(dat_path_, std::ios::binary);
+    if (!dat)
+        return {};
+
+    // file size
+    dat.seekg(0, std::ios::end);
+    const std::streamoff fileSize = dat.tellg();
+    if (fileSize <= 0)
+        return {};
+
+    const std::uint32_t offset = words_[defIndex].dat_offset;
+
+    // need at least 4 bytes for length
+    if (static_cast<std::streamoff>(offset) + 4 > fileSize)
+        return {};
+
+    dat.seekg(static_cast<std::streamoff>(offset), std::ios::beg);
+    if (!dat)
+        return {};
+
+    const std::uint32_t len = read_u32_le(dat);
+    if (!dat)
+        return {};
+
+    // sanity limit (RTF definitions should be reasonably small)
+    constexpr std::uint32_t kMaxDefSize = 4u * 1024u * 1024u; // 4 MiB
+    if (len == 0 || len > kMaxDefSize)
+        return {};
+
+    if (static_cast<std::streamoff>(offset) + 4 + static_cast<std::streamoff>(len) > fileSize)
+        return {};
+
+    std::string rtf;
+    rtf.resize(len);
+
+    dat.read(rtf.data(), static_cast<std::streamsize>(len));
+    if (dat.gcount() != static_cast<std::streamsize>(len))
+        return {};
+
+    return rtf;
 }
 
 } // namespace ydict

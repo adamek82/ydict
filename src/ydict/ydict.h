@@ -27,8 +27,12 @@ public:
         return (i >= 0 && i < static_cast<int>(words_.size())) ? &words_[i] : nullptr;
     }
 
+    // read raw RTF definition from .dat for given entry index
+    std::string readRtf(int defIndex) const;
+
 private:
     bool initialized_ = false;
+    std::string dat_path_;
     std::vector<WordEntry> words_;
 };
 
