@@ -1,0 +1,35 @@
+{
+  "folders": [
+    {
+      "name": "ydict",
+      "path": "."
+    }
+  ],
+  "settings": {
+    // --- CMake Tools ---
+    "cmake.useCMakePresets": "always",
+    "cmake.configurePreset": "debug",
+    "cmake.buildPreset": "debug",
+    "cmake.buildDirectory": "${workspaceFolder}/build/${buildPresetName}",
+    "cmake.generator": "Visual Studio 17 2022",
+
+    // --- C/C++ IntelliSense ---
+    // CMakePresets.json ustawia CMAKE_EXPORT_COMPILE_COMMANDS=ON,
+    // więc cpptools może użyć compile_commands.json.
+	"C_Cpp.default.compileCommands": "${workspaceFolder}/build/debug/compile_commands.json",
+    "C_Cpp.default.cppStandard": "c++20",
+    "C_Cpp.default.intelliSenseMode": "windows-msvc-x64",
+
+    // --- Quality of life ---
+    "files.associations": {
+      "*.tcc": "cpp",
+      "*.ipp": "cpp"
+    }
+  },
+  "extensions": {
+    "recommendations": [
+      "ms-vscode.cmake-tools",
+      "ms-vscode.cpptools"
+    ]
+  }
+}

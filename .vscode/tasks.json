@@ -1,0 +1,16 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "CMake: build (Debug)",
+      "type": "shell",
+      "command": "C:\\Program Files\\CMake\\bin\\cmake.exe",
+      "args": [
+        "--build", "${workspaceFolder}/build/debug",
+        "--config", "Debug"
+      ],
+      "problemMatcher": "$msCompile",
+      "group": { "kind": "build", "isDefault": true }
+    }
+  ]
+}

@@ -1,0 +1,49 @@
+# =====================
+# Build artifacts
+# =====================
+build/
+out/
+cmake-build-*/
+
+# =====================
+# CMake
+# =====================
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+compile_commands.json
+
+# =====================
+# Visual Studio
+# =====================
+.vs/
+*.sln
+*.vcxproj*
+*.vcproj*
+*.user
+*.filters
+*.log
+*.tlog
+*.obj
+*.pdb
+*.idb
+*.ilk
+*.exe
+*.dll
+*.lib
+*.exp
+
+# =====================
+# VS Code (keep configs, ignore noise)
+# =====================
+.vscode/*
+!.vscode/launch.json
+!.vscode/tasks.json
+!.vscode/settings.json
+
+# =====================
+# OS / editor junk
+# =====================
+.DS_Store
+Thumbs.db
+desktop.ini
