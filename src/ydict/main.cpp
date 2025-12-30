@@ -1,6 +1,10 @@
 #include <iostream>
 #include "ydict/ydict.h"
 
+#ifdef _WIN32
+#include <Windows.h>
+#endif
+
 int main()
 {
     ydict::Dictionary dict;
@@ -8,6 +12,11 @@ int main()
 
     cfg.idx_path = "C:/Download/ydpdict/data/dict100.idx";      // TODO: For now, hardcoded for testing
     cfg.dat_path = "C:/Download/ydpdict/data/dict100.dat";      // TODO: For now, hardcoded for testing
+
+#ifdef _WIN32
+    SetConsoleOutputCP(CP_UTF8);
+    SetConsoleCP(CP_UTF8);
+#endif
 
     const bool ok = dict.init(cfg);
     std::cout << "init() => " << (ok ? "OK" : "FAIL") << "\n";
