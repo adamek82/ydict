@@ -1,5 +1,6 @@
 #include <iostream>
 #include <vector>
+#include <algorithm>
 #include "ydict/ydict.h"
 
 #ifdef _WIN32
@@ -44,7 +45,15 @@ int main()
         // plain text smoke test (RTF -> plain, Win-1250/phonetic -> UTF-8)
         std::string text = dict.readPlainText(probe);
         std::cout << "\nplain(" << probe << ") => " << text.size() << " bytes\n";
-        std::cout << text.substr(0, std::min<size_t>(400, text.size())) << "\n";
+        const size_t headLen = std::min<size_t>(400, text.size());
+        std::cout << text.substr(0, headLen) << "\n";
+        if (text.size() > headLen) {
+            std::cout << "...\n(truncated, total=" << text.size() << ")\n";
+
+            const size_t tailLen = std::min<size_t>(120, text.size());
+            std::cout << "\n[tail]\n"
+                      << text.substr(text.size() - tailLen, tailLen) << "\n";
+        }
 
         // extra smoke: lookup several typical words by spelling (keep old tests above)
         const std::vector<std::string> probes = {
@@ -74,6 +83,13 @@ int main()
             const size_t n = std::min<size_t>(300, plain.size());
             std::cout << "  plain(" << plain.size() << " bytes):\n";
             std::cout << plain.substr(0, n) << "\n";
+            if (plain.size() > n) {
+                std::cout << "...\n  (truncated, total=" << plain.size() << ")\n";
+
+                const size_t tailLen = std::min<size_t>(120, plain.size());
+                std::cout << "  [tail]\n"
+                          << plain.substr(plain.size() - tailLen, tailLen) << "\n";
+            }
         }
     }
 
