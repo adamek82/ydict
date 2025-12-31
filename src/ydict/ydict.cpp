@@ -193,7 +193,7 @@ static void append_cp1250_byte_as_utf8(std::string& out, unsigned char b)
     }
     out.append(ubuf, ubuf + ulen);
 #else
-    // fallback (jeśli kiedyś będziesz to kompilował poza Windows): bez tabeli lepiej niż crash
+    // fallback (if you ever compile this outside Windows): without a table it's better than crashing
     out.push_back('?');
 #endif
 }
