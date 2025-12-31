@@ -290,13 +290,12 @@ static std::string rtf_to_plain_utf8(const std::string& rtf)
             continue;
         }
 
-        // font switching: in upstream "f1" meant phonetic, any other "f*" resets
-        if (tok == "f1") {
-            phonetic = true;
-            continue;
-        }
-        if (!tok.empty() && tok[0] == 'f' && tok != "f1") {
-            phonetic = false;
+        // font switching:
+        // In upstream ydpdict, phonetic transcription is emitted under font #1 (\f1).
+        // Our parser reads control word letters into `tok` ("f") and the numeric part
+        // into `param` (1). So we must check (tok=="f" && param==1), not tok=="f1".
+        if (tok == "f" && hasParam) {
+            phonetic = (param == 1);
             continue;
         }
 
