@@ -21,6 +21,7 @@ static void dumpHeadTail(const std::string& s,
                          bool blankLineBeforeTail)
 {
     const size_t headLen = std::min(headMax, s.size());
+    std::cout << indent << "[head]\n";
     std::cout << s.substr(0, headLen) << "\n";
 
     if (s.size() > headLen) {
