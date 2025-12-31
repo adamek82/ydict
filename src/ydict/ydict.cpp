@@ -1,7 +1,9 @@
 #include "ydict/ydict.h"
 
+#include <algorithm>
 #include <fstream>
 #include <stdexcept>
+#include <string_view>
 
 #ifdef _WIN32
 #include <Windows.h>
@@ -328,6 +330,36 @@ std::string Dictionary::readPlainText(int defIndex) const
     if (rtf.empty())
         return {};
     return rtf_to_plain_utf8(rtf);
+}
+
+int Dictionary::findWord(std::string_view word) const
+{
+    if (!initialized_ || word.empty())
+        return -1;
+
+    // Fast path (assumes .idx word table is sorted in a way compatible with std::string ordering)
+    const auto it = std::lower_bound(
+        words_.begin(), words_.end(), word,
+        [](const WordEntry& e, std::string_view w) { return e.word < w; });
+
+    if (it != words_.end() && it->word == word)
+        return static_cast<int>(it - words_.begin());
+
+    // Fallback (robust against collation differences): linear scan
+    for (size_t i = 0; i < words_.size(); ++i) {
+        if (words_[i].word == word)
+            return static_cast<int>(i);
+    }
+
+    return -1;
+}
+
+std::string Dictionary::readPlainText(std::string_view word) const
+{
+    const int idx = findWord(word);
+    if (idx < 0)
+        return {};
+    return readPlainText(idx);
 }
 
 } // namespace ydict

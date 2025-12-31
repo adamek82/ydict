@@ -2,6 +2,7 @@
 
 #include <cstdint>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace ydict {
@@ -32,6 +33,12 @@ public:
 
     // read "plain text" converted to UTF-8 (minimal RTF parsing)
     std::string readPlainText(int defIndex) const;
+
+    // lookup by word (returns entry index or -1)
+    int findWord(std::string_view word) const;
+
+    // convenience: lookup + read plain text
+    std::string readPlainText(std::string_view word) const;
 
 private:
     bool initialized_ = false;

@@ -1,4 +1,5 @@
 #include <iostream>
+#include <vector>
 #include "ydict/ydict.h"
 
 #ifdef _WIN32
@@ -44,6 +45,36 @@ int main()
         std::string text = dict.readPlainText(probe);
         std::cout << "\nplain(" << probe << ") => " << text.size() << " bytes\n";
         std::cout << text.substr(0, std::min<size_t>(400, text.size())) << "\n";
+
+        // extra smoke: lookup several typical words by spelling (keep old tests above)
+        const std::vector<std::string> probes = {
+            "abdicate",
+            "abandon",
+            "abbreviation",
+            "abbey",
+            "abacus",
+            "computer",
+            "house",
+            "love",
+        };
+
+        std::cout << "\n--- lookup tests (findWord + plain) ---\n";
+        for (const auto& w : probes) {
+            const int idx = dict.findWord(w);
+            std::cout << "\nword=\"" << w << "\" => idx=" << idx << "\n";
+            if (idx < 0) {
+                std::cout << "  NOT FOUND\n";
+                continue;
+            }
+
+            const auto* e = dict.wordAt(idx);
+            std::cout << "  datOffset=" << (e ? e->dat_offset : 0) << "\n";
+
+            const std::string plain = dict.readPlainText(idx);
+            const size_t n = std::min<size_t>(300, plain.size());
+            std::cout << "  plain(" << plain.size() << " bytes):\n";
+            std::cout << plain.substr(0, n) << "\n";
+        }
     }
 
     return ok ? 0 : 1;
