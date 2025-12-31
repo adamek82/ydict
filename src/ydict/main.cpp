@@ -1,11 +1,41 @@
 #include <iostream>
 #include <vector>
 #include <algorithm>
+#include <string_view>
 #include "ydict/ydict.h"
 
 #ifdef _WIN32
+#  ifndef NOMINMAX
+#    define NOMINMAX
+#  endif
+#  ifndef WIN32_LEAN_AND_MEAN
+#    define WIN32_LEAN_AND_MEAN
+#  endif
 #include <Windows.h>
 #endif
+
+static void dumpHeadTail(const std::string& s,
+                         size_t headMax,
+                         size_t tailMax,
+                         std::string_view indent,
+                         bool blankLineBeforeTail)
+{
+    const size_t headLen = std::min(headMax, s.size());
+    std::cout << s.substr(0, headLen) << "\n";
+
+    if (s.size() > headLen) {
+        std::cout << indent << "...\n"
+                  << indent << "(truncated, total=" << s.size() << ")\n";
+
+        const size_t tailLen = std::min(tailMax, s.size());
+        if (blankLineBeforeTail) {
+            std::cout << "\n";
+        }
+        std::cout << indent << "[tail]\n"
+                  << s.substr(s.size() - tailLen, tailLen) << "\n";
+    }
+}
+
 
 int main()
 {
@@ -45,15 +75,7 @@ int main()
         // plain text smoke test (RTF -> plain, Win-1250/phonetic -> UTF-8)
         std::string text = dict.readPlainText(probe);
         std::cout << "\nplain(" << probe << ") => " << text.size() << " bytes\n";
-        const size_t headLen = std::min<size_t>(400, text.size());
-        std::cout << text.substr(0, headLen) << "\n";
-        if (text.size() > headLen) {
-            std::cout << "...\n(truncated, total=" << text.size() << ")\n";
-
-            const size_t tailLen = std::min<size_t>(120, text.size());
-            std::cout << "\n[tail]\n"
-                      << text.substr(text.size() - tailLen, tailLen) << "\n";
-        }
+        dumpHeadTail(text, /*headMax=*/400, /*tailMax=*/120, /*indent=*/"", /*blankLineBeforeTail=*/true);
 
         // extra smoke: lookup several typical words by spelling (keep old tests above)
         const std::vector<std::string> probes = {
@@ -82,14 +104,7 @@ int main()
             const std::string plain = dict.readPlainText(idx);
             const size_t n = std::min<size_t>(300, plain.size());
             std::cout << "  plain(" << plain.size() << " bytes):\n";
-            std::cout << plain.substr(0, n) << "\n";
-            if (plain.size() > n) {
-                std::cout << "...\n  (truncated, total=" << plain.size() << ")\n";
-
-                const size_t tailLen = std::min<size_t>(120, plain.size());
-                std::cout << "  [tail]\n"
-                          << plain.substr(plain.size() - tailLen, tailLen) << "\n";
-            }
+            dumpHeadTail(plain, /*headMax=*/300, /*tailMax=*/120, /*indent=*/"  ", /*blankLineBeforeTail=*/false);
         }
     }
 
