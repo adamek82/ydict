@@ -12,16 +12,18 @@
 
 namespace ydict {
 
-// Byte->UTF-8 mapping for the dictionary's "phonetic" font stream.
-//
-// In ydpdict RTF, phonetic transcription is emitted using font #1 (\f1).
-// In that mode, bytes in the 0x80..0x9F range are *not* CP1250 letters — they
-// are custom glyph slots used for IPA-like symbols. We translate those 32
-// slots to their intended Unicode characters so the output becomes valid UTF-8.
-//
-// Unknown / unused / not-yet-reverse-engineered slots are left as "?" so we
-// don’t silently emit wrong phonetics; it makes missing mappings obvious
-// during testing.
+/*
+ * Byte->UTF-8 mapping for the dictionary's "phonetic" font stream.
+
+ * In ydpdict RTF, phonetic transcription is emitted using font #1 (\f1).
+ * In that mode, bytes in the 0x80..0x9F range are *not* CP1250 letters — they
+ * are custom glyph slots used for IPA-like symbols. We translate those 32
+ * slots to their intended Unicode characters so the output becomes valid UTF-8.
+ *
+ * Unknown / unused / not-yet-reverse-engineered slots are left as "?" so we
+ * don’t silently emit wrong phonetics; it makes missing mappings obvious
+ * during testing.
+ */
 static const char* kPhoneticToUtf8[32] = {
     "?", "?", "ɔ", "ʒ", "?", "ʃ", "ɛ", "ʌ",
     "ə", "θ", "ɪ", "ɑ", "?", "ː", "ˈ", "?",
@@ -35,8 +37,10 @@ static void dump_idx_to_file(const std::string& dumpPath, const std::vector<Word
     if (!out)
         return;
 
-    // Simple line-based dump, easy to grep/diff/analyze:
-    // i<TAB>datOffset<TAB>word<NL>
+    /*
+     * Simple line-based dump, easy to grep/diff/analyze:
+     * i<TAB>datOffset<TAB>word<NL>
+     */
     for (size_t i = 0; i < words.size(); ++i) {
         out << i << '\t' << words[i].dat_offset << '\t' << words[i].word << '\n';
     }
@@ -127,8 +131,10 @@ bool Dictionary::init(const Config& cfg)
         words_.push_back(WordEntry{word, datOffset});
     }
 
-    // Debug: dump whole idx table for analysis (sorting/collation/prefix search etc.)
-    // Example output: "C:/.../dict100.idx.dump.txt"
+    /*
+     * Debug: dump whole idx table for analysis (sorting/collation/prefix search etc.)
+     * Example output: "C:/.../dict100.idx.dump.txt"
+     */
     dump_idx_to_file(cfg.idx_path + ".dump.txt", words_);
 
     initialized_ = true;
@@ -320,10 +326,12 @@ static std::string rtf_to_plain_utf8(const std::string& rtf)
             continue;
         }
 
-        // font switching:
-        // In upstream ydpdict, phonetic transcription is emitted under font #1 (\f1).
-        // Our parser reads control word letters into `tok` ("f") and the numeric part
-        // into `param` (1). So we must check (tok=="f" && param==1), not tok=="f1".
+        /*
+         * font switching:
+         * In upstream ydpdict, phonetic transcription is emitted under font #1 (\f1).
+         * Our parser reads control word letters into `tok` ("f") and the numeric part
+         * into `param` (1). So we must check (tok=="f" && param==1), not tok=="f1".
+         */
         if (tok == "f" && hasParam) {
             phonetic = (param == 1);
             continue;
@@ -457,11 +465,13 @@ std::vector<int> Dictionary::suggest(std::string_view prefix, size_t maxResults)
             return out;
     }
 
-    // Find the first word >= prefix
-    // NOTE:
-    // .idx ordering is NOT guaranteed to match std::string ordering used by std::lower_bound
-    // (see dump: e.g. "accessory" comes before "access road", etc.).
-    // So do a simple linear scan (26k words => fast enough) and keep original order.
+    /*
+     * Find the first word >= prefix
+     * NOTE:
+     * .idx ordering is NOT guaranteed to match std::string ordering used by std::lower_bound
+     * (see dump: e.g. "accessory" comes before "access road", etc.).
+     * So do a simple linear scan (26k words => fast enough) and keep original order.
+     */
     for (size_t i = 0; i < words_.size() && out.size() < maxResults; ++i) {
         if (starts_with_ascii_icase(words_[i].word, prefix))
             out.push_back(static_cast<int>(i));
