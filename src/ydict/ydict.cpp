@@ -1,6 +1,7 @@
 #include "ydict/ydict.h"
 
 #include <algorithm>
+#include <cctype>
 #include <fstream>
 #include <stdexcept>
 #include <string_view>
@@ -17,6 +18,19 @@ static const char* kPhoneticToUtf8[32] = {
     "ŋ", "?", "?", "?", "?", "?", "?", "ð",
     "æ", "?", "?", "?", "?", "?", "?", "?"
 };
+
+static void dump_idx_to_file(const std::string& dumpPath, const std::vector<WordEntry>& words)
+{
+    std::ofstream out(dumpPath, std::ios::binary);
+    if (!out)
+        return;
+
+    // Simple line-based dump, easy to grep/diff/analyze:
+    // i<TAB>datOffset<TAB>word<NL>
+    for (size_t i = 0; i < words.size(); ++i) {
+        out << i << '\t' << words[i].dat_offset << '\t' << words[i].word << '\n';
+    }
+}
 
 static std::uint16_t read_u16_le(std::istream& in)
 {
@@ -102,6 +116,10 @@ bool Dictionary::init(const Config& cfg)
 
         words_.push_back(WordEntry{word, datOffset});
     }
+
+    // Debug: dump whole idx table for analysis (sorting/collation/prefix search etc.)
+    // Example output: "C:/.../dict100.idx.dump.txt"
+    dump_idx_to_file(cfg.idx_path + ".dump.txt", words_);
 
     initialized_ = true;
     return true;
@@ -360,6 +378,86 @@ std::string Dictionary::readPlainText(std::string_view word) const
     if (idx < 0)
         return {};
     return readPlainText(idx);
+}
+
+int Dictionary::lowerBound(std::string_view key) const
+{
+    if (!initialized_)
+        return -1;
+
+    const auto it = std::lower_bound(
+        words_.begin(), words_.end(), key,
+        [](const WordEntry& e, std::string_view k) { return e.word < k; });
+
+    return static_cast<int>(it - words_.begin()); // may be == wordCount()
+}
+
+static bool starts_with_sv(std::string_view s, std::string_view prefix)
+{
+    return s.size() >= prefix.size() &&
+           s.substr(0, prefix.size()) == prefix;
+}
+
+static unsigned char ascii_tolower(unsigned char c)
+{
+    if (c >= 'A' && c <= 'Z')
+        return static_cast<unsigned char>(c - 'A' + 'a');
+    return c;
+}
+
+static bool starts_with_ascii_icase(std::string_view s, std::string_view prefix)
+{
+    if (s.size() < prefix.size())
+        return false;
+
+    for (size_t i = 0; i < prefix.size(); ++i) {
+        const unsigned char a = ascii_tolower(static_cast<unsigned char>(s[i]));
+        const unsigned char b = ascii_tolower(static_cast<unsigned char>(prefix[i]));
+        if (a != b)
+            return false;
+    }
+    return true;
+}
+
+int Dictionary::findFirstWithPrefix(std::string_view prefix) const
+{
+    if (!initialized_ || prefix.empty())
+        return -1;
+
+    const int pos = lowerBound(prefix);
+    if (pos < 0 || pos >= static_cast<int>(words_.size()))
+        return -1;
+
+    return starts_with_sv(words_[pos].word, prefix) ? pos : -1;
+}
+
+std::vector<int> Dictionary::suggest(std::string_view prefix, size_t maxResults) const
+{
+    std::vector<int> out;
+    if (!initialized_ || prefix.empty() || maxResults == 0)
+        return out;
+
+    // Optional: treat "to <verb>" as just "<verb>" (many dictionaries omit "to").
+    if (prefix.size() >= 3 &&
+        (prefix[0] == 't' || prefix[0] == 'T') &&
+        (prefix[1] == 'o' || prefix[1] == 'O') &&
+        prefix[2] == ' ') {
+        prefix.remove_prefix(3);
+        if (prefix.empty())
+            return out;
+    }
+
+    // Find the first word >= prefix
+    // NOTE:
+    // .idx ordering is NOT guaranteed to match std::string ordering used by std::lower_bound
+    // (see dump: e.g. "accessory" comes before "access road", etc.).
+    // So do a simple linear scan (26k words => fast enough) and keep original order.
+    for (size_t i = 0; i < words_.size() && out.size() < maxResults; ++i) {
+        if (starts_with_ascii_icase(words_[i].word, prefix))
+            out.push_back(static_cast<int>(i));
+    }
+
+    return out;
 }
 
 } // namespace ydict

@@ -37,7 +37,6 @@ static void dumpHeadTail(const std::string& s,
     }
 }
 
-
 int main()
 {
     ydict::Dictionary dict;
@@ -106,6 +105,39 @@ int main()
             const size_t n = std::min<size_t>(300, plain.size());
             std::cout << "  plain(" << plain.size() << " bytes):\n";
             dumpHeadTail(plain, /*headMax=*/300, /*tailMax=*/120, /*indent=*/"  ", /*blankLineBeforeTail=*/false);
+        }
+
+        // prefix suggestions smoke test (left-pane behavior in ydpdict)
+        const std::vector<std::string> prefixes = {
+            "get",
+            "get ",
+            "to get",
+            "hou",
+            "comp",
+        };
+
+        std::cout << "\n--- prefix suggestions (suggest) ---\n";
+        for (const auto& p : prefixes) {
+            std::cout << "\nprefix=\"" << p << "\"\n";
+            const auto hits = dict.suggest(p, /*limit=*/12);
+            if (hits.empty()) {
+                std::cout << "  (no matches)\n";
+                continue;
+            }
+
+            for (int k = 0; k < static_cast<int>(hits.size()); ++k) {
+                const int wi = hits[k];
+                const auto* e = dict.wordAt(wi);
+                std::cout << "  [" << k << "] idx=" << wi
+                          << " word=\"" << (e ? e->word : "?") << "\"\n";
+            }
+
+            // show definition for the first suggestion (like selecting it in UI)
+            const int firstIdx = hits.front();
+            const auto* e0 = dict.wordAt(firstIdx);
+            std::cout << "  \n  selected=\"" << (e0 ? e0->word : "?") << "\"\n";
+            const std::string def = dict.readPlainText(firstIdx);
+            dumpHeadTail(def, /*headMax=*/220, /*tailMax=*/120, /*indent=*/"  ", /*blankLineBeforeTail=*/false);
         }
     }
 

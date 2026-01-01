@@ -40,6 +40,16 @@ public:
     // convenience: lookup + read plain text
     std::string readPlainText(std::string_view word) const;
 
+    // Returns insertion position in the sorted word table (0..wordCount()).
+    // Useful for prefix search / left-pane suggestions.
+    int lowerBound(std::string_view key) const;
+
+    // First entry whose word starts with prefix, or -1 if none.
+    int findFirstWithPrefix(std::string_view prefix) const;
+
+    // Collect up to `limit` indices of entries starting with prefix.
+    std::vector<int> suggest(std::string_view prefix, size_t maxResults = 15) const;
+
 private:
     bool initialized_ = false;
     std::string dat_path_;
