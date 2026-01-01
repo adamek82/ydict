@@ -12,6 +12,16 @@
 
 namespace ydict {
 
+// Byte->UTF-8 mapping for the dictionary's "phonetic" font stream.
+//
+// In ydpdict RTF, phonetic transcription is emitted using font #1 (\f1).
+// In that mode, bytes in the 0x80..0x9F range are *not* CP1250 letters — they
+// are custom glyph slots used for IPA-like symbols. We translate those 32
+// slots to their intended Unicode characters so the output becomes valid UTF-8.
+//
+// Unknown / unused / not-yet-reverse-engineered slots are left as "?" so we
+// don’t silently emit wrong phonetics; it makes missing mappings obvious
+// during testing.
 static const char* kPhoneticToUtf8[32] = {
     "?", "?", "ɔ", "ʒ", "?", "ʃ", "ɛ", "ʌ",
     "ə", "θ", "ɪ", "ɑ", "?", "ː", "ˈ", "?",
