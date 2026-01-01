@@ -1,6 +1,7 @@
 #include <iostream>
 #include <vector>
 #include <algorithm>
+#include <fstream>
 #include <string_view>
 #include "ydict/ydict.h"
 
@@ -37,7 +38,55 @@ static void dumpHeadTail(const std::string& s,
     }
 }
 
-int main()
+static std::string sanitizeFilename(std::string s)
+{
+    for (char& c : s) {
+        if (!(std::isalnum(static_cast<unsigned char>(c)) || c == '-' || c == '_' || c == '.'))
+            c = '_';
+    }
+    if (s.empty()) s = "out";
+    return s;
+}
+
+static void dumpFullDefinition(const ydict::Dictionary& dict, std::string_view word)
+{
+    const int idx = dict.findWord(word);
+    if (idx < 0) {
+        std::cout << "word=\"" << word << "\" NOT FOUND\n";
+        std::cout << "\nSuggestions for prefix \"" << word << "\":\n";
+        const auto hits = dict.suggest(word, /*maxResults=*/20);
+        if (hits.empty()) {
+            std::cout << "  (no matches)\n";
+            return;
+        }
+        for (int k = 0; k < static_cast<int>(hits.size()); ++k) {
+            const auto* e = dict.wordAt(hits[k]);
+            std::cout << "  [" << k << "] idx=" << hits[k]
+                      << " word=\"" << (e ? e->word : "?") << "\"\n";
+        }
+        return;
+    }
+
+    const auto* e = dict.wordAt(idx);
+    std::cout << "==== FULL DUMP ====\n";
+    std::cout << "word=\"" << word << "\" idx=" << idx
+              << " datOffset=" << (e ? e->dat_offset : 0) << "\n";
+
+    const std::string plain = dict.readPlainText(idx);
+    std::cout << "plain bytes=" << plain.size() << "\n";
+    std::cout << "---- BEGIN ----\n";
+    std::cout << plain << "\n";
+    std::cout << "----  END  ----\n";
+
+    const std::string fname = sanitizeFilename(std::string(word)) + ".plain.txt";
+    std::ofstream out(fname, std::ios::binary);
+    if (out) {
+        out.write(plain.data(), static_cast<std::streamsize>(plain.size()));
+        std::cout << "(saved to " << fname << ")\n";
+    }
+}
+
+int main(int argc, char** argv)
 {
     ydict::Dictionary dict;
     ydict::Config cfg;
@@ -55,6 +104,12 @@ int main()
     std::cout << dict.version() << "\n";
 
     if (ok) {
+        // On-demand full dump: ydict.exe set
+        if (argc >= 2) {
+            dumpFullDefinition(dict, argv[1]);
+            return 0;
+        }
+
         for (int i = 0; i < dict.wordCount() && i < 25; ++i) {
             const auto* e = dict.wordAt(i);
             std::cout << "  [" << i << "] datOffset=" << e->dat_offset
