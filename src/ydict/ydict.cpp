@@ -264,7 +264,7 @@ static int hexval(char c)
  * --------------------------------------
  * We parse a small subset of the RTF-like stream used by ydpdict:
  *   - groups: '{' pushes state, '}' pops state
- *   - '\par'/'\line'/'\pard' => newline
+ *   - '\par'/'\line' => newline; '\pard' => paragraph reset (no newline)
  *   - '\saN' => indentation at beginning of line
  *   - '\cfN' => style bucket; we treat cf==2 as "phrase bullet" (prefix "- ")
  *   - '\f1' => phonetic font stream (0x80..0x9F map via kPhoneticToUtf8)
@@ -301,6 +301,9 @@ std::string renderRtfForCli(std::string_view rtf)
     out.reserve(rtf.size());
 
     bool bol = true; // beginning-of-line
+    // Compress newlines: ydpdict output is compact (no empty lines).
+    // `nl_run==1` means the last emitted char was '\n'.
+    int nl_run = 0;
 
     auto beginLineIfNeeded = [&]() {
         if (!bol)
@@ -317,11 +320,22 @@ std::string renderRtfForCli(std::string_view rtf)
         if (s.cf == 2) {
             out += "- ";
         }
+        nl_run = 0;
     };
 
     auto newline = [&]() {
+        // Avoid leading blank lines and avoid empty lines in general.
+        if (out.empty()) {
+            bol = true;
+            return;
+        }
+        if (nl_run >= 1) {
+            bol = true;
+            return;
+        }
         out.push_back('\n');
         bol = true;
+        nl_run = 1;
     };
 
     for (size_t i = 0; i < rtf.size(); ++i) {
@@ -350,6 +364,7 @@ std::string renderRtfForCli(std::string_view rtf)
 
             beginLineIfNeeded();
             append_byte_as_utf8(out, ch, st.back().phonetic);
+            nl_run = 0;
             continue;
         }
 
@@ -367,6 +382,7 @@ std::string renderRtfForCli(std::string_view rtf)
                     continue;
                 beginLineIfNeeded();
                 append_byte_as_utf8(out, lit, st.back().phonetic);
+                nl_run = 0;
             }
             continue;
         }
@@ -383,6 +399,7 @@ std::string renderRtfForCli(std::string_view rtf)
                         continue;
                     beginLineIfNeeded();
                     append_byte_as_utf8(out, b, st.back().phonetic);
+                    nl_run = 0;
                 }
                 continue;
             }
@@ -415,14 +432,23 @@ std::string renderRtfForCli(std::string_view rtf)
         else
             i = j - 1;
 
-        if (tok == "par" || tok == "line" || tok == "pard") {
+        if (tok == "par" || tok == "line") {
             if (!st.back().hide) newline();
+            continue;
+        }
+        if (tok == "pard") {
+            // Paragraph defaults/reset; do NOT create a new line (RTF often does \pard\par).
+            st.back().cf = 0;
+            st.back().margin = false;
+            // phonetic/hide are kept as they are (usually scoped by groups anyway).
+            bol = true;
             continue;
         }
         if (tok == "tab") {
             if (!st.back().hide) {
                 beginLineIfNeeded();
                 out.push_back('\t');
+                nl_run = 0;
             }
             continue;
         }
@@ -440,9 +466,11 @@ std::string renderRtfForCli(std::string_view rtf)
             beginLineIfNeeded();
             if (ulen > 0) out.append(ubuf, ubuf + ulen);
             else out.push_back('?');
+            nl_run = 0;
 #else
             beginLineIfNeeded();
             out.push_back('?');
+            nl_run = 0;
 #endif
             // RTF expects a fallback char right after \uN — skip one if present
             if (i + 1 < rtf.size())
