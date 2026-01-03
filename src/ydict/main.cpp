@@ -164,6 +164,63 @@ static std::string formatPlainForCli(const std::string& plain)
     return out;
 }
 
+struct CliOptions
+{
+    bool show_plain = false;   // default: pretty
+    bool help = false;
+    std::string_view word;     // first non-option argument
+};
+
+static void printUsage(const char* exe)
+{
+    std::cout
+        << "Usage:\n"
+        << "  " << exe << " [--show-plain] <word>\n"
+        << "  " << exe << " --help\n"
+        << "\n"
+        << "Notes:\n"
+        << "  - Default output is the console-friendly (pretty) formatter.\n"
+        << "  - Use --show-plain to print raw plain text instead.\n"
+        << "  - If no <word> is provided, the program runs the existing smoke tests.\n";
+}
+
+static CliOptions parseCli(int argc, char** argv)
+{
+    CliOptions opt;
+
+    for (int i = 1; i < argc; ++i) {
+        std::string_view a = argv[i];
+
+        if (a == "--show-plain" || a == "--plain") {
+            opt.show_plain = true;
+            continue;
+        }
+        if (a == "--show-pretty" || a == "--pretty") {
+            opt.show_plain = false;
+            continue;
+        }
+        if (a == "-h" || a == "--help") {
+            opt.help = true;
+            continue;
+        }
+
+        if (!a.empty() && a.front() == '-') {
+            // Unknown option -> show usage for now.
+            opt.help = true;
+            continue;
+        }
+
+        if (opt.word.empty()) {
+            opt.word = a;
+        } else {
+            // Multiple positional args -> usage error (for now).
+            opt.help = true;
+        }
+    }
+
+    return opt;
+}
+
 static std::string sanitizeFilename(std::string s)
 {
     for (char& c : s) {
@@ -174,7 +231,7 @@ static std::string sanitizeFilename(std::string s)
     return s;
 }
 
-static void dumpFullDefinition(const ydict::Dictionary& dict, std::string_view word)
+static void dumpFullDefinition(const ydict::Dictionary& dict, std::string_view word, bool showPlain)
 {
     const int idx = dict.findWord(word);
     if (idx < 0) {
@@ -200,12 +257,18 @@ static void dumpFullDefinition(const ydict::Dictionary& dict, std::string_view w
 
     const std::string plain = dict.readPlainText(idx);
     std::cout << "plain bytes=" << plain.size() << "\n";
-    std::cout << "---- BEGIN ----\n";
-    std::cout << plain << "\n";
-    // Console-friendly formatting (no colors): POS headers, example indentation, bullets for phrases.
-    const std::string pretty = formatPlainForCli(plain);
-    std::cout << pretty << "\n";
-    std::cout << "----  END  ----\n";
+
+    if (showPlain) {
+        std::cout << "---- BEGIN (plain) ----\n";
+        std::cout << plain << "\n";
+        std::cout << "----  END  (plain) ----\n";
+    } else {
+        std::cout << "---- BEGIN (pretty) ----\n";
+        // Console-friendly formatting (no colors): POS headers, example indentation, bullets for phrases.
+        const std::string pretty = formatPlainForCli(plain);
+        std::cout << pretty << "\n";
+        std::cout << "----  END  (pretty) ----\n";
+    }
 
     const std::string fname = sanitizeFilename(std::string(word)) + ".plain.txt";
     std::ofstream out(fname, std::ios::binary);
@@ -233,9 +296,17 @@ int main(int argc, char** argv)
     std::cout << dict.version() << "\n";
 
     if (ok) {
-        // On-demand full dump: ydict.exe set
-        if (argc >= 2) {
-            dumpFullDefinition(dict, argv[1]);
+        const CliOptions cli = parseCli(argc, argv);
+        if (cli.help) {
+            printUsage(argv[0]);
+            return 0;
+        }
+
+        // On-demand full dump:
+        //   ydict_app.exe get
+        //   ydict_app.exe --show-plain get
+        if (!cli.word.empty()) {
+            dumpFullDefinition(dict, cli.word, /*showPlain=*/cli.show_plain);
             return 0;
         }
 
