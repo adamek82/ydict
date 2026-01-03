@@ -373,8 +373,11 @@ int main(int argc, char** argv)
 
     if (ok) {
         if (cli.dump_index) {
-            // Best-effort: lib writes it during init(); we just inform what was requested.
-            std::cout << "(index dump requested: " << cli.index_file << ")\n";
+            const auto& st = dict.idxDumpStatus();
+            if (st.requested) {
+                if (st.ok) std::cout << "(saved index to " << st.path << ")\n";
+                else       std::cout << "(failed to save index to " << st.path << ")\n";
+            }
         }
 
         // On-demand full dump:
@@ -471,6 +474,11 @@ int main(int argc, char** argv)
             std::cout << "  \n  selected=\"" << (e0 ? e0->word : "?") << "\"\n";
             const std::string def = dict.readPlainText(firstIdx);
             dumpHeadTail(def, /*headMax=*/220, /*tailMax=*/120, /*indent=*/"  ", /*blankLineBeforeTail=*/false);
+        }
+    }
+    else {
+        if (cli.dump_index) {
+            std::cout << "(index dump not produced: init failed)\n";
         }
     }
 

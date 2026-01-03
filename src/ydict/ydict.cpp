@@ -83,7 +83,9 @@ bool Dictionary::init(const Config& cfg)
 {
     initialized_ = false;
     words_.clear();
+    idx_dump_status_ = IdxDumpStatus{};
 
+    // (status will be finalized after we load the index)
     dat_path_.clear();
 
     if (cfg.idx_path.empty())
@@ -139,7 +141,9 @@ bool Dictionary::init(const Config& cfg)
     // Optional debug artifact (disabled by default).
     // Useful for analyzing collation/sorting/prefix-search issues without doing it unconditionally.
     if (!cfg.idx_dump_path.empty()) {
-        (void)dump_idx_to_file(cfg.idx_dump_path, words_);
+        idx_dump_status_.requested = true;
+        idx_dump_status_.path = cfg.idx_dump_path;
+        idx_dump_status_.ok = dump_idx_to_file(cfg.idx_dump_path, words_);
     }
 
     initialized_ = true;

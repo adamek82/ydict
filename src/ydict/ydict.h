@@ -25,6 +25,13 @@ struct WordEntry {
     std::uint32_t dat_offset = 0;
 };
 
+struct IdxDumpStatus
+{
+    bool requested = false;
+    bool ok = false;          // meaningful only if requested==true
+    std::string path;         // meaningful only if requested==true
+};
+
 class Dictionary {
 public:
     bool init(const Config& cfg);
@@ -58,10 +65,14 @@ public:
     // Collect up to `limit` indices of entries starting with prefix.
     std::vector<int> suggest(std::string_view prefix, size_t maxResults = 15) const;
 
+    // Debug/CLI diagnostics: tells whether idx dump was requested and whether it succeeded.
+    const IdxDumpStatus& idxDumpStatus() const { return idx_dump_status_; }
+
 private:
     bool initialized_ = false;
     std::string dat_path_;
     std::vector<WordEntry> words_;
+    IdxDumpStatus idx_dump_status_;
 };
 
 /*
