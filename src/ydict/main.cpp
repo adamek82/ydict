@@ -2,6 +2,7 @@
 #include <vector>
 #include <algorithm>
 #include <fstream>
+#include <cctype>
 #include <string_view>
 #include "ydict/ydict.h"
 
@@ -36,6 +37,131 @@ static void dumpHeadTail(const std::string& s,
         std::cout << indent << "[tail]\n"
                   << s.substr(s.size() - tailLen, tailLen) << "\n";
     }
+}
+
+static std::string_view trim(std::string_view s)
+{
+    size_t b = 0;
+    while (b < s.size() && (s[b] == ' ' || s[b] == '\t' || s[b] == '\r')) {
+        ++b;
+    }
+    size_t e = s.size();
+    while (e > b && (s[e - 1] == ' ' || s[e - 1] == '\t' || s[e - 1] == '\r')) {
+        --e;
+    }
+    return s.substr(b, e - b);
+}
+
+static bool startsWith(std::string_view s, std::string_view prefix)
+{
+    return s.size() >= prefix.size() && s.substr(0, prefix.size()) == prefix;
+}
+
+static bool endsWithSentencePunct(std::string_view s)
+{
+    if (s.empty()) return false;
+    const char c = s.back();
+    return c == '.' || c == '?' || c == '!';
+}
+
+static bool isPosTag(std::string_view t)
+{
+    // Minimal set for now (matches what we see in ydpdict output)
+    return t == "n" || t == "adj" || t == "vt" || t == "vi";
+}
+
+static bool isExampleLine(std::string_view t)
+{
+    // Heuristic: sentence-like lines, usually examples under a sense/meaning.
+    if (t.empty()) return false;
+    if (startsWith(t, "...")) return true;
+
+    const unsigned char c0 = static_cast<unsigned char>(t.front());
+    if (std::isupper(c0) && endsWithSentencePunct(t)) {
+        return true;
+    }
+    return false;
+}
+
+static bool isPhraseBullet(std::string_view t)
+{
+    // Heuristic: collocations/idioms ("to ...", "a ...") that are not full sentences.
+    if (t.empty()) return false;
+    if (endsWithSentencePunct(t)) return false;
+
+    return startsWith(t, "to ") ||
+           startsWith(t, "a ")  ||
+           startsWith(t, "an ") ||
+           startsWith(t, "he's ") ||
+           startsWith(t, "she's ") ||
+           startsWith(t, "we're ") ||
+           startsWith(t, "i'm ");
+}
+
+static void ensureBlankLine(std::string& out)
+{
+    if (out.empty()) return;
+    if (out.back() != '\n') out.push_back('\n');
+    // make it a *blank* line => two consecutive '\n'
+    if (out.size() < 2 || out[out.size() - 2] != '\n') out.push_back('\n');
+}
+
+static std::string formatPlainForCli(const std::string& plain)
+{
+    std::string out;
+    out.reserve(plain.size() + 64);
+
+    bool firstContentLineTrimmed = false;
+
+    size_t i = 0;
+    while (i <= plain.size()) {
+        size_t j = plain.find('\n', i);
+        if (j == std::string::npos) j = plain.size();
+
+        std::string_view line(&plain[i], j - i);
+        // strip trailing CR if present (Windows line endings)
+        if (!line.empty() && line.back() == '\r') {
+            line = line.substr(0, line.size() - 1);
+        }
+
+        std::string_view t = trim(line);
+
+        // (1) Trim leading indentation only for the very first non-empty line
+        if (!firstContentLineTrimmed && !t.empty()) {
+            firstContentLineTrimmed = true;
+            line = t; // remove leading spaces/tabs from the headword line
+            t = trim(line);
+        }
+
+        if (t.empty()) {
+            out.push_back('\n');
+        } else if (isPosTag(t)) {
+            // (2) POS as headers with a blank line before them
+            ensureBlankLine(out);
+            out += "== ";
+            out += t;
+            out += " ==\n";
+        } else if (isPhraseBullet(t)) {
+            // (3) Bullet-like phrases/collocations
+            out += "- ";
+            out += t;
+            out.push_back('\n');
+        } else if (isExampleLine(t)) {
+            // (3) Indent example sentences
+            out += "  ";
+            out += t;
+            out.push_back('\n');
+        } else {
+            // keep original line (including any intentional indentation)
+            out.append(line.data(), line.size());
+            out.push_back('\n');
+        }
+
+        if (j == plain.size()) break;
+        i = j + 1;
+    }
+
+    return out;
 }
 
 static std::string sanitizeFilename(std::string s)
@@ -76,6 +202,9 @@ static void dumpFullDefinition(const ydict::Dictionary& dict, std::string_view w
     std::cout << "plain bytes=" << plain.size() << "\n";
     std::cout << "---- BEGIN ----\n";
     std::cout << plain << "\n";
+    // Console-friendly formatting (no colors): POS headers, example indentation, bullets for phrases.
+    const std::string pretty = formatPlainForCli(plain);
+    std::cout << pretty << "\n";
     std::cout << "----  END  ----\n";
 
     const std::string fname = sanitizeFilename(std::string(word)) + ".plain.txt";
