@@ -186,7 +186,6 @@ static void printUsage(const char* exe)
         << "  --show-pretty, --pretty           Print pretty text (default)\n"
         << "  --write-plain-file, --save-plain  Write <word>.plain.txt to disk\n"
         << "  --dump-index, --dump-idx          Write full index dump to ydict.index.txt\n"
-        << "  --dump-index, --dump-idx          Write full index dump to ydict.index.txt\n"
         << "  --index-file <path>               Set index dump path (implies --dump-index)\n"
         << "\n"
         << "Notes:\n"
