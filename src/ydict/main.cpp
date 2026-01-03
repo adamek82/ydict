@@ -169,6 +169,7 @@ struct CliOptions
     bool show_plain = false;   // default: pretty
     bool write_plain_file = false; // default: do not write <word>.plain.txt
     bool dump_index = false;        // default: do not dump full index
+    std::string index_file = "ydict.index.txt";
     bool help = false;
     std::string_view word;     // first non-option argument
 };
@@ -177,7 +178,6 @@ static void printUsage(const char* exe)
 {
     std::cout
         << "Usage:\n"
-        << "  " << exe << " [--show-plain] <word>\n"
         << "  " << exe << " [options] <word>\n"
         << "  " << exe << " --help\n"
         << "\n"
@@ -186,6 +186,8 @@ static void printUsage(const char* exe)
         << "  --show-pretty, --pretty           Print pretty text (default)\n"
         << "  --write-plain-file, --save-plain  Write <word>.plain.txt to disk\n"
         << "  --dump-index, --dump-idx          Write full index dump to ydict.index.txt\n"
+        << "  --dump-index, --dump-idx          Write full index dump to ydict.index.txt\n"
+        << "  --index-file <path>               Set index dump path (implies --dump-index)\n"
         << "\n"
         << "Notes:\n"
         << "  - Default output is the console-friendly (pretty) formatter.\n"
@@ -215,6 +217,31 @@ static CliOptions parseCli(int argc, char** argv)
         }
         if (a == "--dump-index" || a == "--dump-idx") {
             opt.dump_index = true;
+            continue;
+        }
+        if (a == "--index-file") {
+            if (i + 1 >= argc) {
+                opt.help = true;
+                continue;
+            }
+            std::string_view p = argv[++i];
+            if (!p.empty() && p.front() == '-') {
+                // Looks like another option -> treat as error for now.
+                opt.help = true;
+                continue;
+            }
+            opt.index_file = std::string(p);
+            opt.dump_index = true; // implied
+            continue;
+        }
+        if (a.size() > 12 && a.substr(0, 12) == "--index-file=") {
+            std::string_view p = a.substr(12);
+            if (p.empty()) {
+                opt.help = true;
+                continue;
+            }
+            opt.index_file = std::string(p);
+            opt.dump_index = true; // implied
             continue;
         }
         if (a == "-h" || a == "--help") {
@@ -346,7 +373,7 @@ int main(int argc, char** argv)
         }
 
         if (cli.dump_index) {
-            const std::string path = "ydict.index.txt";
+            const std::string& path = cli.index_file;
             if (dumpIndexToFile(dict, path)) {
                 std::cout << "(saved index to " << path << ")\n";
             } else {
