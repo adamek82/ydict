@@ -10,6 +10,14 @@ namespace ydict {
 struct Config {
     std::string dat_path;
     std::string idx_path;
+
+    /*
+     * Optional debug: write the loaded .idx word table to a text file.
+     * If empty (default), no dump is produced.
+     *
+     * Format: idx<TAB>datOffset<TAB>word<NL>
+     */
+    std::string idx_dump_path;
 };
 
 struct WordEntry {

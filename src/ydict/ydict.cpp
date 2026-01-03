@@ -34,11 +34,11 @@ static const char* kPhoneticToUtf8[32] = {
     "æ", "?", "?", "?", "?", "?", "?", "?"
 };
 
-static void dump_idx_to_file(const std::string& dumpPath, const std::vector<WordEntry>& words)
+static bool dump_idx_to_file(const std::string& dumpPath, const std::vector<WordEntry>& words)
 {
     std::ofstream out(dumpPath, std::ios::binary);
     if (!out)
-        return;
+        return false;
 
     /*
      * Simple line-based dump, easy to grep/diff/analyze:
@@ -47,6 +47,8 @@ static void dump_idx_to_file(const std::string& dumpPath, const std::vector<Word
     for (size_t i = 0; i < words.size(); ++i) {
         out << i << '\t' << words[i].dat_offset << '\t' << words[i].word << '\n';
     }
+
+    return true;
 }
 
 static std::uint16_t read_u16_le(std::istream& in)
@@ -134,11 +136,11 @@ bool Dictionary::init(const Config& cfg)
         words_.push_back(WordEntry{word, datOffset});
     }
 
-    /*
-     * Debug: dump whole idx table for analysis (sorting/collation/prefix search etc.)
-     * Example output: "C:/.../dict100.idx.dump.txt"
-     */
-    dump_idx_to_file(cfg.idx_path + ".dump.txt", words_);
+    // Optional debug artifact (disabled by default).
+    // Useful for analyzing collation/sorting/prefix-search issues without doing it unconditionally.
+    if (!cfg.idx_dump_path.empty()) {
+        (void)dump_idx_to_file(cfg.idx_dump_path, words_);
+    }
 
     initialized_ = true;
     return true;

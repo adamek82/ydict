@@ -275,24 +275,6 @@ static std::string sanitizeFilename(std::string s)
     return s;
 }
 
-static bool dumpIndexToFile(const ydict::Dictionary& dict, const std::string& path)
-{
-    std::ofstream out(path, std::ios::binary);
-    if (!out) {
-        return false;
-    }
-
-    // Format: idx<TAB>datOffset<TAB>word\n
-    for (int i = 0; i < dict.wordCount(); ++i) {
-        const auto* e = dict.wordAt(i);
-        out << i << '\t'
-            << (e ? e->dat_offset : 0) << '\t'
-            << (e ? e->word : "?")
-            << '\n';
-    }
-    return true;
-}
-
 static void dumpFullDefinition(const ydict::Dictionary& dict,
                                std::string_view word,
                                bool showPlain,
@@ -362,6 +344,12 @@ static void dumpFullDefinition(const ydict::Dictionary& dict,
 
 int main(int argc, char** argv)
 {
+    const CliOptions cli = parseCli(argc, argv);
+    if (cli.help) {
+        printUsage(argv[0]);
+        return 0;
+    }
+
     ydict::Dictionary dict;
     ydict::Config cfg;
 
@@ -373,24 +361,20 @@ int main(int argc, char** argv)
     SetConsoleCP(CP_UTF8);
 #endif
 
+    // Optional debug dump of the loaded idx table (handled by the library).
+    if (cli.dump_index) {
+        cfg.idx_dump_path = cli.index_file;
+    }
+
     const bool ok = dict.init(cfg);
+
     std::cout << "init() => " << (ok ? "OK" : "FAIL") << "\n";
     std::cout << dict.version() << "\n";
 
     if (ok) {
-        const CliOptions cli = parseCli(argc, argv);
-        if (cli.help) {
-            printUsage(argv[0]);
-            return 0;
-        }
-
         if (cli.dump_index) {
-            const std::string& path = cli.index_file;
-            if (dumpIndexToFile(dict, path)) {
-                std::cout << "(saved index to " << path << ")\n";
-            } else {
-                std::cout << "(failed to save index to " << path << ")\n";
-            }
+            // Best-effort: lib writes it during init(); we just inform what was requested.
+            std::cout << "(index dump requested: " << cli.index_file << ")\n";
         }
 
         // On-demand full dump:
