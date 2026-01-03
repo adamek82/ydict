@@ -2,9 +2,12 @@
 
 #include <algorithm>
 #include <cctype>
+#include <cstdint>
 #include <fstream>
 #include <stdexcept>
+#include <string>
 #include <string_view>
+#include <vector>
 
 #ifdef _WIN32
 #include <Windows.h>
@@ -14,7 +17,7 @@ namespace ydict {
 
 /*
  * Byte->UTF-8 mapping for the dictionary's "phonetic" font stream.
-
+ *
  * In ydpdict RTF, phonetic transcription is emitted using font #1 (\f1).
  * In that mode, bytes in the 0x80..0x9F range are *not* CP1250 letters — they
  * are custom glyph slots used for IPA-like symbols. We translate those 32
@@ -241,12 +244,210 @@ static void append_byte_as_utf8(std::string& out, unsigned char b, bool phonetic
     append_cp1250_byte_as_utf8(out, b);
 }
 
+/* --- helpers used by BOTH RTF->CLI and RTF->plain --- */
 static int hexval(char c)
 {
     if (c >= '0' && c <= '9') return c - '0';
     if (c >= 'a' && c <= 'f') return 10 + (c - 'a');
     if (c >= 'A' && c <= 'F') return 10 + (c - 'A');
     return -1;
+}
+
+/*
+ * Minimal RTF -> CLI renderer (no colors)
+ * --------------------------------------
+ * We parse a small subset of the RTF-like stream used by ydpdict:
+ *   - groups: '{' pushes state, '}' pops state
+ *   - '\par'/'\line'/'\pard' => newline
+ *   - '\saN' => indentation at beginning of line
+ *   - '\cfN' => style bucket; we treat cf==2 as "phrase bullet" (prefix "- ")
+ *   - '\f1' => phonetic font stream (0x80..0x9F map via kPhoneticToUtf8)
+ *   - '\qc' => hidden blocks (ydpdict convention)
+ *   - "\'hh" and '\uN' => proper decoding to UTF-8
+ *
+ * The point is to keep semantic cues that are lost in plain text conversion,
+ * so CLI output matches ydpdict more closely without brittle heuristics.
+ */
+struct RtfCliState
+{
+    int  cf = 0;           // \cfN
+    bool phonetic = false; // \f1
+    bool hide = false;     // \qc
+    bool margin = false;   // \saN
+};
+
+static bool is_alpha(char c)
+{
+    return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z');
+}
+
+static bool is_digit(char c)
+{
+    return (c >= '0' && c <= '9');
+}
+
+std::string renderRtfForCli(std::string_view rtf)
+{
+    std::vector<RtfCliState> st;
+    st.push_back(RtfCliState{});
+
+    std::string out;
+    out.reserve(rtf.size());
+
+    bool bol = true; // beginning-of-line
+
+    auto beginLineIfNeeded = [&]() {
+        if (!bol)
+            return;
+
+        bol = false;
+        const RtfCliState& s = st.back();
+
+        if (s.margin) {
+            out += "  "; // minimal indent (tunable)
+        }
+
+        // IMPORTANT: bullet is driven by RTF style (\cf2), not by text heuristics.
+        if (s.cf == 2) {
+            out += "- ";
+        }
+    };
+
+    auto newline = [&]() {
+        out.push_back('\n');
+        bol = true;
+    };
+
+    for (size_t i = 0; i < rtf.size(); ++i) {
+        const unsigned char ch = static_cast<unsigned char>(rtf[i]);
+
+        if (ch == '{') {
+            st.push_back(st.back());
+            continue;
+        }
+        if (ch == '}') {
+            if (st.size() > 1)
+                st.pop_back();
+            continue;
+        }
+
+        if (ch != '\\') {
+            if (st.back().hide)
+                continue;
+
+            // Trim noisy leading whitespace at BOL; indentation comes from \saN.
+            if (bol && (ch == ' ' || ch == '\t' || ch == '\r'))
+                continue;
+
+            if (ch == '\n') { newline(); continue; }
+            if (ch == '\r') { continue; }
+
+            beginLineIfNeeded();
+            append_byte_as_utf8(out, ch, st.back().phonetic);
+            continue;
+        }
+
+        // Control sequence
+        if (i + 1 >= rtf.size())
+            break;
+
+        // Escaped literal: \\ \{ \}
+        const char next = rtf[i + 1];
+        if (next == '\\' || next == '{' || next == '}') {
+            i += 1;
+            if (!st.back().hide) {
+                const unsigned char lit = static_cast<unsigned char>(next);
+                if (bol && (lit == ' ' || lit == '\t' || lit == '\r'))
+                    continue;
+                beginLineIfNeeded();
+                append_byte_as_utf8(out, lit, st.back().phonetic);
+            }
+            continue;
+        }
+
+        // Hex escape: \'hh
+        if (next == '\'' && i + 3 < rtf.size()) {
+            const int h1 = hexval(rtf[i + 2]);
+            const int h2 = hexval(rtf[i + 3]);
+            if (h1 >= 0 && h2 >= 0) {
+                const unsigned char b = static_cast<unsigned char>((h1 << 4) | h2);
+                i += 3;
+                if (!st.back().hide) {
+                    if (bol && (b == ' ' || b == '\t' || b == '\r'))
+                        continue;
+                    beginLineIfNeeded();
+                    append_byte_as_utf8(out, b, st.back().phonetic);
+                }
+                continue;
+            }
+        }
+
+        // Parse control word: \word[+/-num]?
+        size_t j = i + 1;
+        std::string tok;
+        while (j < rtf.size() && is_alpha(rtf[j])) {
+            tok.push_back(rtf[j]);
+            ++j;
+        }
+
+        bool hasParam = false;
+        int sign = 1;
+        int param = 0;
+        if (j < rtf.size() && (rtf[j] == '-' || is_digit(rtf[j]))) {
+            hasParam = true;
+            if (rtf[j] == '-') { sign = -1; ++j; }
+            while (j < rtf.size() && is_digit(rtf[j])) {
+                param = param * 10 + (rtf[j] - '0');
+                ++j;
+            }
+            param *= sign;
+        }
+
+        // Optional delimiter space after control word
+        if (j < rtf.size() && rtf[j] == ' ')
+            i = j;
+        else
+            i = j - 1;
+
+        if (tok == "par" || tok == "line" || tok == "pard") {
+            if (!st.back().hide) newline();
+            continue;
+        }
+        if (tok == "tab") {
+            if (!st.back().hide) {
+                beginLineIfNeeded();
+                out.push_back('\t');
+            }
+            continue;
+        }
+        if (tok == "cf" && hasParam) { st.back().cf = param; continue; }
+        if (tok == "sa" && hasParam) { st.back().margin = (param != 0); continue; }
+        if (tok == "f"  && hasParam) { st.back().phonetic = (param == 1); continue; }
+        if (tok == "qc") { st.back().hide = true; continue; }
+
+        // Minimal RTF \uN support
+        if (tok == "u" && hasParam && !st.back().hide) {
+#ifdef _WIN32
+            wchar_t wc = static_cast<wchar_t>(param);
+            char ubuf[8] = {};
+            const int ulen = WideCharToMultiByte(CP_UTF8, 0, &wc, 1, ubuf, int(sizeof(ubuf)), nullptr, nullptr);
+            beginLineIfNeeded();
+            if (ulen > 0) out.append(ubuf, ubuf + ulen);
+            else out.push_back('?');
+#else
+            beginLineIfNeeded();
+            out.push_back('?');
+#endif
+            // RTF expects a fallback char right after \uN — skip one if present
+            if (i + 1 < rtf.size())
+                ++i;
+            continue;
+        }
+
+        // Everything else ignored for now (bold/italics/etc.).
+    }
+
+    return out;
 }
 
 static std::string rtf_to_plain_utf8(const std::string& rtf)

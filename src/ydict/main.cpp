@@ -189,8 +189,8 @@ static void printUsage(const char* exe)
         << "  --index-file <path>               Set index dump path (implies --dump-index)\n"
         << "\n"
         << "Notes:\n"
-        << "  - Default output is the console-friendly (pretty) formatter.\n"
-        << "  - Use --show-plain to print raw plain text instead.\n"
+        << "  - Default output is rendered from the original RTF stream (pretty, no colors).\n"
+        << "  - Use --show-plain to print raw plain text instead (debug / regression checks).\n"
         << "  - By default, no files are written.\n"
         << "  - If no <word> is provided, the program runs the existing smoke tests.\n";
 }
@@ -320,22 +320,35 @@ static void dumpFullDefinition(const ydict::Dictionary& dict,
     std::cout << "word=\"" << word << "\" idx=" << idx
               << " datOffset=" << (e ? e->dat_offset : 0) << "\n";
 
-    const std::string plain = dict.readPlainText(idx);
-    std::cout << "plain bytes=" << plain.size() << "\n";
-
     if (showPlain) {
+        const std::string plain = dict.readPlainText(idx);
+        std::cout << "plain bytes=" << plain.size() << "\n";
         std::cout << "---- BEGIN (plain) ----\n";
         std::cout << plain << "\n";
         std::cout << "----  END  (plain) ----\n";
     } else {
         std::cout << "---- BEGIN (pretty) ----\n";
-        // Console-friendly formatting (no colors): POS headers, example indentation, bullets for phrases.
-        const std::string pretty = formatPlainForCli(plain);
+
+        const std::string rtf = dict.readRtf(idx);
+        std::cout << "rtf bytes=" << rtf.size() << "\n";
+
+        // Preferred path: render directly from RTF to preserve semantic cues (bullets/indent/phonetics).
+        std::string pretty = ydict::renderRtfForCli(rtf);
+
+        // Safety fallback: if RTF render yields nothing, fall back to the old plain-based formatter.
+        if (pretty.empty()) {
+            const std::string plain = dict.readPlainText(idx);
+            pretty = formatPlainForCli(plain);
+        }
+
         std::cout << pretty << "\n";
         std::cout << "----  END  (pretty) ----\n";
     }
 
     if (writePlainFile) {
+        // Plain-text file remains useful as a debug artifact (RTF->plain conversion).
+        const std::string plain = dict.readPlainText(idx);
+
         const std::string fname = sanitizeFilename(std::string(word)) + ".plain.txt";
         std::ofstream out(fname, std::ios::binary);
         if (out) {

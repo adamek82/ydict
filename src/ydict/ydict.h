@@ -56,4 +56,15 @@ private:
     std::vector<WordEntry> words_;
 };
 
+/*
+ * RTF -> CLI renderer
+ * ------------------
+ * The dictionary definitions are stored as a compact RTF-like stream.
+ * This helper renders that stream to UTF-8 text suitable for console output
+ * (no colors), preserving key semantic cues (indentation, bullet lines,
+ * phonetic font mapping, hidden blocks) so we don't have to rely on heuristics
+ * over already-flattened plain text.
+ */
+std::string renderRtfForCli(std::string_view rtf);
+
 } // namespace ydict
