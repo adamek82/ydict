@@ -167,6 +167,8 @@ static std::string formatPlainForCli(const std::string& plain)
 struct CliOptions
 {
     bool show_plain = false;   // default: pretty
+    bool write_plain_file = false; // default: do not write <word>.plain.txt
+    bool dump_index = false;        // default: do not dump full index
     bool help = false;
     std::string_view word;     // first non-option argument
 };
@@ -176,11 +178,19 @@ static void printUsage(const char* exe)
     std::cout
         << "Usage:\n"
         << "  " << exe << " [--show-plain] <word>\n"
+        << "  " << exe << " [options] <word>\n"
         << "  " << exe << " --help\n"
+        << "\n"
+        << "Options:\n"
+        << "  --show-plain, --plain             Print raw plain text (instead of pretty)\n"
+        << "  --show-pretty, --pretty           Print pretty text (default)\n"
+        << "  --write-plain-file, --save-plain  Write <word>.plain.txt to disk\n"
+        << "  --dump-index, --dump-idx          Write full index dump to ydict.index.txt\n"
         << "\n"
         << "Notes:\n"
         << "  - Default output is the console-friendly (pretty) formatter.\n"
         << "  - Use --show-plain to print raw plain text instead.\n"
+        << "  - By default, no files are written.\n"
         << "  - If no <word> is provided, the program runs the existing smoke tests.\n";
 }
 
@@ -197,6 +207,14 @@ static CliOptions parseCli(int argc, char** argv)
         }
         if (a == "--show-pretty" || a == "--pretty") {
             opt.show_plain = false;
+            continue;
+        }
+        if (a == "--write-plain-file" || a == "--save-plain" || a == "--save-plain-file") {
+            opt.write_plain_file = true;
+            continue;
+        }
+        if (a == "--dump-index" || a == "--dump-idx") {
+            opt.dump_index = true;
             continue;
         }
         if (a == "-h" || a == "--help") {
@@ -231,7 +249,28 @@ static std::string sanitizeFilename(std::string s)
     return s;
 }
 
-static void dumpFullDefinition(const ydict::Dictionary& dict, std::string_view word, bool showPlain)
+static bool dumpIndexToFile(const ydict::Dictionary& dict, const std::string& path)
+{
+    std::ofstream out(path, std::ios::binary);
+    if (!out) {
+        return false;
+    }
+
+    // Format: idx<TAB>datOffset<TAB>word\n
+    for (int i = 0; i < dict.wordCount(); ++i) {
+        const auto* e = dict.wordAt(i);
+        out << i << '\t'
+            << (e ? e->dat_offset : 0) << '\t'
+            << (e ? e->word : "?")
+            << '\n';
+    }
+    return true;
+}
+
+static void dumpFullDefinition(const ydict::Dictionary& dict,
+                               std::string_view word,
+                               bool showPlain,
+                               bool writePlainFile)
 {
     const int idx = dict.findWord(word);
     if (idx < 0) {
@@ -270,11 +309,15 @@ static void dumpFullDefinition(const ydict::Dictionary& dict, std::string_view w
         std::cout << "----  END  (pretty) ----\n";
     }
 
-    const std::string fname = sanitizeFilename(std::string(word)) + ".plain.txt";
-    std::ofstream out(fname, std::ios::binary);
-    if (out) {
-        out.write(plain.data(), static_cast<std::streamsize>(plain.size()));
-        std::cout << "(saved to " << fname << ")\n";
+    if (writePlainFile) {
+        const std::string fname = sanitizeFilename(std::string(word)) + ".plain.txt";
+        std::ofstream out(fname, std::ios::binary);
+        if (out) {
+            out.write(plain.data(), static_cast<std::streamsize>(plain.size()));
+            std::cout << "(saved to " << fname << ")\n";
+        } else {
+            std::cout << "(failed to save " << fname << ")\n";
+        }
     }
 }
 
@@ -302,11 +345,23 @@ int main(int argc, char** argv)
             return 0;
         }
 
+        if (cli.dump_index) {
+            const std::string path = "ydict.index.txt";
+            if (dumpIndexToFile(dict, path)) {
+                std::cout << "(saved index to " << path << ")\n";
+            } else {
+                std::cout << "(failed to save index to " << path << ")\n";
+            }
+        }
+
         // On-demand full dump:
         //   ydict_app.exe get
         //   ydict_app.exe --show-plain get
         if (!cli.word.empty()) {
-            dumpFullDefinition(dict, cli.word, /*showPlain=*/cli.show_plain);
+            dumpFullDefinition(dict,
+                               cli.word,
+                               /*showPlain=*/cli.show_plain,
+                               /*writePlainFile=*/cli.write_plain_file);
             return 0;
         }
 
