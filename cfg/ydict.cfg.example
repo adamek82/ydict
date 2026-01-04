@@ -1,0 +1,5 @@
+# ydict.cfg
+# Paths can be absolute or relative (relative paths are resolved against the directory of ydict_app.exe).
+
+idx_path = C:/Download/ydpdict/data/dict100.idx
+dat_path = C:/Download/ydpdict/data/dict100.dat

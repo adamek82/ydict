@@ -34,3 +34,15 @@ target_link_libraries(ydict_app PRIVATE ydict)
 
 # Nice: make app the default startup target in some IDEs
 set_property(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR} PROPERTY VS_STARTUP_PROJECT ydict_app)
+
+# ---- Default config next to the exe (copied only if missing) ----
+set(YDICT_DEFAULT_CFG "${CMAKE_CURRENT_SOURCE_DIR}/cfg/ydict.cfg.example")
+set(YDICT_COPY_SCRIPT "${CMAKE_CURRENT_SOURCE_DIR}/cmake/copy_if_missing.cmake")
+
+add_custom_command(TARGET ydict_app POST_BUILD
+    COMMAND "${CMAKE_COMMAND}"
+            -Dsrc="${YDICT_DEFAULT_CFG}"
+            -Ddst="$<TARGET_FILE_DIR:ydict_app>/ydict.cfg"
+            -P "${YDICT_COPY_SCRIPT}"
+    COMMENT "Ensuring ydict.cfg exists next to ydict_app.exe (copy only if missing)"
+)

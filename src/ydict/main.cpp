@@ -1,6 +1,8 @@
 #include <iostream>
 #include <vector>
 #include <algorithm>
+#include <filesystem>
+#include <sstream>
 #include <fstream>
 #include <cctype>
 #include <string_view>
@@ -15,6 +17,93 @@
 #  endif
 #include <Windows.h>
 #endif
+
+static std::filesystem::path getExeDir()
+{
+#ifdef _WIN32
+    wchar_t buf[MAX_PATH];
+    const DWORD n = GetModuleFileNameW(nullptr, buf, MAX_PATH);
+    if (n == 0 || n >= MAX_PATH) {
+        return std::filesystem::current_path();
+    }
+    return std::filesystem::path(buf).parent_path();
+#else
+    return std::filesystem::current_path();
+#endif
+}
+
+static std::string trimCopy(std::string s)
+{
+    auto isWs = [](unsigned char c) { return c==' '||c=='\t'||c=='\r'||c=='\n'; };
+    while (!s.empty() && isWs((unsigned char)s.front())) s.erase(s.begin());
+    while (!s.empty() && isWs((unsigned char)s.back())) s.pop_back();
+    return s;
+}
+
+static bool loadConfigFromExeDir(ydict::Config& cfg, std::string* err, bool diagnostics)
+{
+    const std::filesystem::path exeDir = getExeDir();
+    const std::filesystem::path cfgPath = exeDir / "ydict.cfg";
+
+    std::ifstream in(cfgPath, std::ios::binary);
+    if (!in) {
+        if (err) {
+            std::ostringstream oss;
+            oss << "Missing config file: " << cfgPath.string() << "\n"
+                << "Create it next to the exe (ydict.cfg). Example:\n"
+                << "  idx_path=data/dict100.idx\n"
+                << "  dat_path=data/dict100.dat\n";
+            *err = oss.str();
+        }
+        return false;
+    }
+
+    std::string idxPath;
+    std::string datPath;
+
+    std::string line;
+    while (std::getline(in, line)) {
+        line = trimCopy(line);
+        if (line.empty()) continue;
+        if (line[0] == '#' || line[0] == ';') continue;
+
+        const size_t eq = line.find('=');
+        if (eq == std::string::npos) continue;
+
+        std::string key = trimCopy(line.substr(0, eq));
+        std::string val = trimCopy(line.substr(eq + 1));
+
+        if (!val.empty() && val.front() == '"' && val.back() == '"' && val.size() >= 2) {
+            val = val.substr(1, val.size() - 2);
+        }
+
+        if (key == "idx_path") idxPath = val;
+        else if (key == "dat_path") datPath = val;
+    }
+
+    if (idxPath.empty() || datPath.empty()) {
+        if (err) {
+            *err = "Invalid ydict.cfg: idx_path/dat_path missing.\n";
+        }
+        return false;
+    }
+
+    std::filesystem::path idxP(idxPath);
+    std::filesystem::path datP(datPath);
+    if (idxP.is_relative()) idxP = exeDir / idxP;
+    if (datP.is_relative()) datP = exeDir / datP;
+
+    cfg.idx_path = idxP.string();
+    cfg.dat_path = datP.string();
+
+    if (diagnostics) {
+        std::cout << "config: " << cfgPath.string() << "\n"
+                  << "idx_path: " << cfg.idx_path << "\n"
+                  << "dat_path: " << cfg.dat_path << "\n";
+    }
+
+    return true;
+}
 
 static std::string_view trim(std::string_view s)
 {
@@ -457,8 +546,11 @@ int main(int argc, char** argv)
     ydict::Dictionary dict;
     ydict::Config cfg;
 
-    cfg.idx_path = "C:/Download/ydpdict/data/dict100.idx";      // TODO: for now, hardcoded for testing
-    cfg.dat_path = "C:/Download/ydpdict/data/dict100.dat";      // TODO: for now, hardcoded for testing
+    std::string cfgErr;
+    if (!loadConfigFromExeDir(cfg, &cfgErr, /*diagnostics=*/cli.diagnostics)) {
+        std::cerr << cfgErr;
+        return 1;
+    }
 
 #ifdef _WIN32
     SetConsoleOutputCP(CP_UTF8);
