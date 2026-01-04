@@ -147,7 +147,7 @@ static std::string formatPlainForCli(const std::string& plain)
             out += t;
             out.push_back('\n');
         } else if (isExampleLine(t)) {
-            // (3) Indent example sentences
+            // (4) Indent example sentences
             out += "  ";
             out += t;
             out.push_back('\n');
@@ -166,12 +166,12 @@ static std::string formatPlainForCli(const std::string& plain)
 
 struct CliOptions
 {
-    bool show_plain = false;   // default: pretty
-    bool write_plain_file = false; // default: do not write <word>.plain.txt
+    bool show_plain = false;        // default: pretty
+    bool write_plain_file = false;  // default: do not write <word>.plain.txt
     bool dump_index = false;        // default: do not dump full index
     std::string index_file = "ydict.index.txt";
     bool help = false;
-    std::string_view word;     // first non-option argument
+    std::string_view word;          // first non-option argument
 };
 
 static void printUsage(const char* exe)
@@ -314,7 +314,7 @@ static void dumpFullDefinition(const ydict::Dictionary& dict,
         const std::string rtf = dict.readRtf(idx);
         std::cout << "rtf bytes=" << rtf.size() << "\n";
 
-        // Preferred path: render directly from RTF to preserve semantic cues (bullets/indent/phonetics).
+        // Preferred path: render directly from RTF to preserve semantic cues.
         std::string pretty = ydict::renderRtfForCli(rtf);
 
         // Safety fallback: if RTF render yields nothing, fall back to the old plain-based formatter.
@@ -353,8 +353,8 @@ int main(int argc, char** argv)
     ydict::Dictionary dict;
     ydict::Config cfg;
 
-    cfg.idx_path = "C:/Download/ydpdict/data/dict100.idx";      // TODO: For now, hardcoded for testing
-    cfg.dat_path = "C:/Download/ydpdict/data/dict100.dat";      // TODO: For now, hardcoded for testing
+    cfg.idx_path = "C:/Download/ydpdict/data/dict100.idx";      // TODO: for now, hardcoded for testing
+    cfg.dat_path = "C:/Download/ydpdict/data/dict100.dat";      // TODO: for now, hardcoded for testing
 
 #ifdef _WIN32
     SetConsoleOutputCP(CP_UTF8);
@@ -390,6 +390,8 @@ int main(int argc, char** argv)
                                /*writePlainFile=*/cli.write_plain_file);
             return 0;
         }
+
+        // --- smoke tests (no <word> provided) ---
 
         for (int i = 0; i < dict.wordCount() && i < 25; ++i) {
             const auto* e = dict.wordAt(i);
@@ -438,7 +440,6 @@ int main(int argc, char** argv)
             std::cout << "  datOffset=" << (e ? e->dat_offset : 0) << "\n";
 
             const std::string plain = dict.readPlainText(idx);
-            const size_t n = std::min<size_t>(300, plain.size());
             std::cout << "  plain(" << plain.size() << " bytes):\n";
             dumpHeadTail(plain, /*headMax=*/300, /*tailMax=*/120, /*indent=*/"  ", /*blankLineBeforeTail=*/false);
         }
@@ -475,8 +476,7 @@ int main(int argc, char** argv)
             const std::string def = dict.readPlainText(firstIdx);
             dumpHeadTail(def, /*headMax=*/220, /*tailMax=*/120, /*indent=*/"  ", /*blankLineBeforeTail=*/false);
         }
-    }
-    else {
+    } else {
         if (cli.dump_index) {
             std::cout << "(index dump not produced: init failed)\n";
         }

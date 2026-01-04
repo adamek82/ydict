@@ -35,34 +35,24 @@ struct IdxDumpStatus
 class Dictionary {
 public:
     bool init(const Config& cfg);
-
     std::string version() const;
 
-    int wordCount() const { return static_cast<int>(words_.size()); }
-    const WordEntry* wordAt(int i) const {
-        return (i >= 0 && i < static_cast<int>(words_.size())) ? &words_[i] : nullptr;
-    }
+    int wordCount() const;
+    const WordEntry* wordAt(int index) const;
 
-    // read raw RTF definition from .dat for given entry index
+    // Read raw RTF-like stream from .dat for the given entry index.
     std::string readRtf(int defIndex) const;
 
-    // read "plain text" converted to UTF-8 (minimal RTF parsing)
+    // Read plain UTF-8 text, produced by a minimal RTF-to-plain converter.
     std::string readPlainText(int defIndex) const;
-
-    // lookup by word (returns entry index or -1)
-    int findWord(std::string_view word) const;
-
-    // convenience: lookup + read plain text
     std::string readPlainText(std::string_view word) const;
 
-    // Returns insertion position in the sorted word table (0..wordCount()).
-    // Useful for prefix search / left-pane suggestions.
+    // Find exact word in the loaded index. Returns -1 if not found.
+    int findWord(std::string_view word) const;
+
+    // For prefix search/suggestions (left-pane behavior in ydpdict).
     int lowerBound(std::string_view key) const;
-
-    // First entry whose word starts with prefix, or -1 if none.
     int findFirstWithPrefix(std::string_view prefix) const;
-
-    // Collect up to `limit` indices of entries starting with prefix.
     std::vector<int> suggest(std::string_view prefix, size_t maxResults = 15) const;
 
     // Debug/CLI diagnostics: tells whether idx dump was requested and whether it succeeded.
@@ -80,9 +70,8 @@ private:
  * ------------------
  * The dictionary definitions are stored as a compact RTF-like stream.
  * This helper renders that stream to UTF-8 text suitable for console output
- * (no colors), preserving key semantic cues (indentation, bullet lines,
- * phonetic font mapping, hidden blocks) so we don't have to rely on heuristics
- * over already-flattened plain text.
+ * (no colors), preserving key semantic cues (indentation, phonetics mapping,
+ * hidden blocks) while keeping line breaks close to ydpdict.
  */
 std::string renderRtfForCli(std::string_view rtf);
 

@@ -83,10 +83,8 @@ bool Dictionary::init(const Config& cfg)
 {
     initialized_ = false;
     words_.clear();
-    idx_dump_status_ = IdxDumpStatus{};
-
-    // (status will be finalized after we load the index)
     dat_path_.clear();
+    idx_dump_status_ = IdxDumpStatus{};
 
     if (cfg.idx_path.empty())
         return false;
@@ -139,7 +137,7 @@ bool Dictionary::init(const Config& cfg)
     }
 
     // Optional debug artifact (disabled by default).
-    // Useful for analyzing collation/sorting/prefix-search issues without doing it unconditionally.
+    // Useful for analyzing collation/sorting/prefix-search issues.
     if (!cfg.idx_dump_path.empty()) {
         idx_dump_status_.requested = true;
         idx_dump_status_.path = cfg.idx_dump_path;
@@ -155,6 +153,18 @@ std::string Dictionary::version() const
     if (!initialized_)
         return "ydict - not initialized";
     return "ydict - idx loaded (" + std::to_string(words_.size()) + " words)";
+}
+
+int Dictionary::wordCount() const
+{
+    return static_cast<int>(words_.size());
+}
+
+const WordEntry* Dictionary::wordAt(int index) const
+{
+    if (index < 0 || index >= static_cast<int>(words_.size()))
+        return nullptr;
+    return &words_[index];
 }
 
 std::string Dictionary::readRtf(int defIndex) const
@@ -207,6 +217,16 @@ std::string Dictionary::readRtf(int defIndex) const
     return rtf;
 }
 
+/* --- text decoding helpers (used by both RTF->plain and RTF->CLI) --- */
+
+static int hexval(char c)
+{
+    if (c >= '0' && c <= '9') return c - '0';
+    if (c >= 'a' && c <= 'f') return 10 + (c - 'a');
+    if (c >= 'A' && c <= 'F') return 10 + (c - 'A');
+    return -1;
+}
+
 static void append_cp1250_byte_as_utf8(std::string& out, unsigned char b)
 {
     if (b == 0x7F) { // upstream mapped this to "~"
@@ -236,7 +256,6 @@ static void append_cp1250_byte_as_utf8(std::string& out, unsigned char b)
     }
     out.append(ubuf, ubuf + ulen);
 #else
-    // fallback (if you ever compile this outside Windows): without a table it's better than crashing
     out.push_back('?');
 #endif
 }
@@ -250,38 +269,6 @@ static void append_byte_as_utf8(std::string& out, unsigned char b, bool phonetic
     append_cp1250_byte_as_utf8(out, b);
 }
 
-/* --- helpers used by BOTH RTF->CLI and RTF->plain --- */
-static int hexval(char c)
-{
-    if (c >= '0' && c <= '9') return c - '0';
-    if (c >= 'a' && c <= 'f') return 10 + (c - 'a');
-    if (c >= 'A' && c <= 'F') return 10 + (c - 'A');
-    return -1;
-}
-
-/*
- * Minimal RTF -> CLI renderer (no colors)
- * --------------------------------------
- * We parse a small subset of the RTF-like stream used by ydpdict:
- *   - groups: '{' pushes state, '}' pops state
- *   - '\par'/'\line' => newline; '\pard' => paragraph reset (no newline)
- *   - '\saN' => indentation at beginning of line
- *   - '\cfN' => style bucket; we treat cf==2 as "phrase bullet" (prefix "- ")
- *   - '\f1' => phonetic font stream (0x80..0x9F map via kPhoneticToUtf8)
- *   - '\qc' => hidden blocks (ydpdict convention)
- *   - "\'hh" and '\uN' => proper decoding to UTF-8
- *
- * The point is to keep semantic cues that are lost in plain text conversion,
- * so CLI output matches ydpdict more closely without brittle heuristics.
- */
-struct RtfCliState
-{
-    int  cf = 0;           // \cfN
-    bool phonetic = false; // \f1
-    bool hide = false;     // \qc
-    bool margin = false;   // \saN
-};
-
 static bool is_alpha(char c)
 {
     return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z');
@@ -292,6 +279,67 @@ static bool is_digit(char c)
     return (c >= '0' && c <= '9');
 }
 
+static std::string_view trim_sv(std::string_view s)
+{
+    size_t b = 0;
+    while (b < s.size() && (s[b] == ' ' || s[b] == '\t' || s[b] == '\r')) {
+        ++b;
+    }
+    size_t e = s.size();
+    while (e > b && (s[e - 1] == ' ' || s[e - 1] == '\t' || s[e - 1] == '\r')) {
+        --e;
+    }
+    return s.substr(b, e - b);
+}
+
+static bool is_pos_heading(std::string_view t)
+{
+    t = trim_sv(t);
+    // Keep it conservative: only known headings should match.
+    return t == "n" ||
+           t == "adj" ||
+           t == "adv" ||
+           t == "vt" ||
+           t == "vi" ||
+           t == "prep" ||
+           t == "pron" ||
+           t == "conj" ||
+           t == "num" ||
+           t == "det" ||
+           t == "modal aux vb";
+}
+
+/*
+ * Minimal RTF -> CLI renderer (no colors)
+ * --------------------------------------
+ * We parse a small subset of the RTF-like stream used by ydpdict and render it
+ * into UTF-8 console text, trying to stay close to ydpdict’s *layout* (line
+ * breaks / spacing) without relying on the old plain-text heuristics.
+ *
+ * Important choices:
+ *   - We treat \par and \line as line breaks.
+ *   - We treat \pard as a paragraph-format reset (no line break).
+ *   - We compress excessive blank lines (max one empty line / i.e. max 2 '\n' in a row).
+ *   - Some style signals (e.g. \cf2) are used by ydpdict for headings; we avoid
+ *     emitting a leading "- " for POS headings like "vt/vi/n/adj".
+ *
+ * Supported constructs:
+ *   - groups: '{' pushes state, '}' pops state
+ *   - '\par'/'\line' => newline
+ *   - '\saN' => indentation at beginning of line
+ *   - '\cfN' => style bucket (used only as a hint; we mostly preserve text)
+ *   - '\f1' => phonetic font stream (0x80..0x9F map via kPhoneticToUtf8)
+ *   - '\qc' => hidden blocks (ydpdict convention)
+ *   - "\'hh" and '\uN' => proper decoding to UTF-8
+ */
+struct RtfCliState
+{
+    int  cf = 0;           // \cfN
+    bool phonetic = false; // \f1
+    bool hide = false;     // \qc
+    bool margin = false;   // \saN
+};
+
 std::string renderRtfForCli(std::string_view rtf)
 {
     std::vector<RtfCliState> st;
@@ -300,42 +348,76 @@ std::string renderRtfForCli(std::string_view rtf)
     std::string out;
     out.reserve(rtf.size());
 
-    bool bol = true; // beginning-of-line
-    // Compress newlines: ydpdict output is compact (no empty lines).
-    // `nl_run==1` means the last emitted char was '\n'.
-    int nl_run = 0;
+    std::string line;
+    line.reserve(256);
 
-    auto beginLineIfNeeded = [&]() {
-        if (!bol)
-            return;
+    bool haveLineStartState = false;
+    RtfCliState lineStartState{};
 
-        bol = false;
-        const RtfCliState& s = st.back();
+    int nl_run = 0; // consecutive '\n' already emitted into `out`
 
-        if (s.margin) {
-            out += "  "; // minimal indent (tunable)
-        }
-
-        // IMPORTANT: bullet is driven by RTF style (\cf2), not by text heuristics.
-        if (s.cf == 2) {
-            out += "- ";
-        }
+    auto mark_non_nl = [&]() {
         nl_run = 0;
     };
 
-    auto newline = [&]() {
-        // Avoid leading blank lines and avoid empty lines in general.
+    auto emit_newline = [&]() {
+        // Avoid leading newlines and compress multiple blank lines.
         if (out.empty()) {
-            bol = true;
             return;
         }
-        if (nl_run >= 1) {
-            bol = true;
+        if (nl_run >= 2) { // allow at most one empty line
             return;
         }
         out.push_back('\n');
-        bol = true;
-        nl_run = 1;
+        ++nl_run;
+    };
+
+    auto flush_line = [&]() {
+        if (!haveLineStartState && line.empty()) {
+            return;
+        }
+
+        std::string_view t = trim_sv(line);
+        if (t.empty()) {
+            line.clear();
+            haveLineStartState = false;
+            return;
+        }
+
+        mark_non_nl();
+
+        if (lineStartState.margin) {
+            out += "  ";
+        }
+
+        // Historical note: we used to render \cf2 as "- ". Keep it only for non-POS lines.
+        if (lineStartState.cf == 2 && !is_pos_heading(t)) {
+            out += "- ";
+        }
+
+        out.append(t.data(), t.size());
+
+        line.clear();
+        haveLineStartState = false;
+    };
+
+    auto ensure_line_started = [&]() {
+        if (haveLineStartState)
+            return;
+        haveLineStartState = true;
+        lineStartState = st.back();
+    };
+
+    auto push_text_byte = [&](unsigned char b) {
+        if (st.back().hide)
+            return;
+
+        // Trim noisy leading whitespace at BOL; indentation comes from \saN.
+        if (line.empty() && (b == ' ' || b == '\t' || b == '\r'))
+            return;
+
+        ensure_line_started();
+        append_byte_as_utf8(line, b, st.back().phonetic);
     };
 
     for (size_t i = 0; i < rtf.size(); ++i) {
@@ -352,19 +434,18 @@ std::string renderRtfForCli(std::string_view rtf)
         }
 
         if (ch != '\\') {
-            if (st.back().hide)
+            if (ch == '\n') {
+                if (!st.back().hide) {
+                    flush_line();
+                    emit_newline();
+                }
                 continue;
-
-            // Trim noisy leading whitespace at BOL; indentation comes from \saN.
-            if (bol && (ch == ' ' || ch == '\t' || ch == '\r'))
+            }
+            if (ch == '\r') {
                 continue;
+            }
 
-            if (ch == '\n') { newline(); continue; }
-            if (ch == '\r') { continue; }
-
-            beginLineIfNeeded();
-            append_byte_as_utf8(out, ch, st.back().phonetic);
-            nl_run = 0;
+            push_text_byte(ch);
             continue;
         }
 
@@ -376,14 +457,7 @@ std::string renderRtfForCli(std::string_view rtf)
         const char next = rtf[i + 1];
         if (next == '\\' || next == '{' || next == '}') {
             i += 1;
-            if (!st.back().hide) {
-                const unsigned char lit = static_cast<unsigned char>(next);
-                if (bol && (lit == ' ' || lit == '\t' || lit == '\r'))
-                    continue;
-                beginLineIfNeeded();
-                append_byte_as_utf8(out, lit, st.back().phonetic);
-                nl_run = 0;
-            }
+            push_text_byte(static_cast<unsigned char>(next));
             continue;
         }
 
@@ -394,13 +468,7 @@ std::string renderRtfForCli(std::string_view rtf)
             if (h1 >= 0 && h2 >= 0) {
                 const unsigned char b = static_cast<unsigned char>((h1 << 4) | h2);
                 i += 3;
-                if (!st.back().hide) {
-                    if (bol && (b == ' ' || b == '\t' || b == '\r'))
-                        continue;
-                    beginLineIfNeeded();
-                    append_byte_as_utf8(out, b, st.back().phonetic);
-                    nl_run = 0;
-                }
+                push_text_byte(b);
                 continue;
             }
         }
@@ -433,25 +501,27 @@ std::string renderRtfForCli(std::string_view rtf)
             i = j - 1;
 
         if (tok == "par" || tok == "line") {
-            if (!st.back().hide) newline();
+            if (!st.back().hide) {
+                flush_line();
+                emit_newline();
+            }
             continue;
         }
+
         if (tok == "pard") {
             // Paragraph defaults/reset; do NOT create a new line (RTF often does \pard\par).
             st.back().cf = 0;
             st.back().margin = false;
-            // phonetic/hide are kept as they are (usually scoped by groups anyway).
-            bol = true;
             continue;
         }
+
         if (tok == "tab") {
             if (!st.back().hide) {
-                beginLineIfNeeded();
-                out.push_back('\t');
-                nl_run = 0;
+                push_text_byte('\t');
             }
             continue;
         }
+
         if (tok == "cf" && hasParam) { st.back().cf = param; continue; }
         if (tok == "sa" && hasParam) { st.back().margin = (param != 0); continue; }
         if (tok == "f"  && hasParam) { st.back().phonetic = (param == 1); continue; }
@@ -463,14 +533,12 @@ std::string renderRtfForCli(std::string_view rtf)
             wchar_t wc = static_cast<wchar_t>(param);
             char ubuf[8] = {};
             const int ulen = WideCharToMultiByte(CP_UTF8, 0, &wc, 1, ubuf, int(sizeof(ubuf)), nullptr, nullptr);
-            beginLineIfNeeded();
-            if (ulen > 0) out.append(ubuf, ubuf + ulen);
-            else out.push_back('?');
-            nl_run = 0;
+            ensure_line_started();
+            if (ulen > 0) line.append(ubuf, ubuf + ulen);
+            else line.push_back('?');
 #else
-            beginLineIfNeeded();
-            out.push_back('?');
-            nl_run = 0;
+            ensure_line_started();
+            line.push_back('?');
 #endif
             // RTF expects a fallback char right after \uN — skip one if present
             if (i + 1 < rtf.size())
@@ -478,9 +546,10 @@ std::string renderRtfForCli(std::string_view rtf)
             continue;
         }
 
-        // Everything else ignored for now (bold/italics/etc.).
+        // Everything else ignored for now.
     }
 
+    flush_line();
     return out;
 }
 
@@ -526,21 +595,21 @@ static std::string rtf_to_plain_utf8(const std::string& rtf)
         std::string tok;
         while (i < rtf.size()) {
             const char c = rtf[i];
-            if (!((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')))
+            if (!is_alpha(c))
                 break;
             tok.push_back(c);
             ++i;
         }
 
-        // optional numeric parameter (e.g. sa100, li300, u8211)
+        // optional numeric parameter
         bool hasParam = false;
         int param = 0;
         int sign = 1;
 
-        if (i < rtf.size() && (rtf[i] == '-' || (rtf[i] >= '0' && rtf[i] <= '9'))) {
+        if (i < rtf.size() && (rtf[i] == '-' || is_digit(rtf[i]))) {
             hasParam = true;
             if (rtf[i] == '-') { sign = -1; ++i; }
-            while (i < rtf.size() && (rtf[i] >= '0' && rtf[i] <= '9')) {
+            while (i < rtf.size() && is_digit(rtf[i])) {
                 param = param * 10 + (rtf[i] - '0');
                 ++i;
             }
@@ -551,7 +620,6 @@ static std::string rtf_to_plain_utf8(const std::string& rtf)
         if (i < rtf.size() && rtf[i] == ' ')
             ++i;
 
-        // minimal semantics
         if (tok == "par" || tok == "line") {
             out.push_back('\n');
             continue;
@@ -561,18 +629,11 @@ static std::string rtf_to_plain_utf8(const std::string& rtf)
             continue;
         }
 
-        /*
-         * font switching:
-         * In upstream ydpdict, phonetic transcription is emitted under font #1 (\f1).
-         * Our parser reads control word letters into `tok` ("f") and the numeric part
-         * into `param` (1). So we must check (tok=="f" && param==1), not tok=="f1".
-         */
         if (tok == "f" && hasParam) {
             phonetic = (param == 1);
             continue;
         }
 
-        // minimal RTF \uN support (optional; harmless)
         if (tok == "u" && hasParam) {
 #ifdef _WIN32
             wchar_t wc = static_cast<wchar_t>(param);
@@ -583,7 +644,6 @@ static std::string rtf_to_plain_utf8(const std::string& rtf)
 #else
             out.push_back('?');
 #endif
-            // RTF expects a fallback char right after \uN — skip one if present
             if (i < rtf.size())
                 ++i;
             continue;
@@ -601,6 +661,14 @@ std::string Dictionary::readPlainText(int defIndex) const
     if (rtf.empty())
         return {};
     return rtf_to_plain_utf8(rtf);
+}
+
+std::string Dictionary::readPlainText(std::string_view word) const
+{
+    const int idx = findWord(word);
+    if (idx < 0)
+        return {};
+    return readPlainText(idx);
 }
 
 int Dictionary::findWord(std::string_view word) const
@@ -623,14 +691,6 @@ int Dictionary::findWord(std::string_view word) const
     }
 
     return -1;
-}
-
-std::string Dictionary::readPlainText(std::string_view word) const
-{
-    const int idx = findWord(word);
-    if (idx < 0)
-        return {};
-    return readPlainText(idx);
 }
 
 int Dictionary::lowerBound(std::string_view key) const
@@ -700,13 +760,7 @@ std::vector<int> Dictionary::suggest(std::string_view prefix, size_t maxResults)
             return out;
     }
 
-    /*
-     * Find the first word >= prefix
-     * NOTE:
-     * .idx ordering is NOT guaranteed to match std::string ordering used by std::lower_bound
-     * (see dump: e.g. "accessory" comes before "access road", etc.).
-     * So do a simple linear scan (26k words => fast enough) and keep original order.
-     */
+    // Robust: linear scan, keep original order from .idx
     for (size_t i = 0; i < words_.size() && out.size() < maxResults; ++i) {
         if (starts_with_ascii_icase(words_[i].word, prefix))
             out.push_back(static_cast<int>(i));
